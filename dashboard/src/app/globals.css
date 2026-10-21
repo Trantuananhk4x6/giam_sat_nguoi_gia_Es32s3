@@ -68,6 +68,26 @@ body {
   margin-bottom: 22px;
   box-shadow: 0 8px 26px rgba(16, 33, 72, 0.22);
 }
+/* Khoi chua cac muc dieu huong - desktop la mot hang ngang. */
+.nav-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+/* Nut hamburger - an o desktop, chi hien tren mobile (xem media query). */
+.nav-burger {
+  display: none;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 12px;
+  place-items: center;
+}
+.nav-burger:hover:not(:disabled) { background: rgba(255, 255, 255, 0.24); filter: none; }
 .nav .brand {
   font-weight: 700;
   margin-right: 14px;
@@ -856,6 +876,19 @@ button.small {
   background: var(--gold-grad);
   padding: 4px 10px;
   border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(227, 162, 26, 0.35);
+}
+.ai-badge svg {
+  color: #7a5200;
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.6));
+  animation: badge-twinkle 2.6s ease-in-out infinite;
+}
+@keyframes badge-twinkle {
+  0%, 100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  50% { opacity: 0.75; transform: scale(1.14) rotate(8deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-badge svg { animation: none; }
 }
 .ai-text {
   font-size: 16px;
@@ -1043,20 +1076,77 @@ button.small {
   color: var(--brand-2);
   font-size: 17px;
 }
+/* --- Avatar tro ly AI: khung gradient nhieu lop + anh sang lap lanh --- */
 .chat-hello-ic,
 .bubble-ava {
+  position: relative;
   display: grid;
   place-items: center;
   color: #fff;
-  background: var(--navy-grad);
-  box-shadow: inset 0 -2px 0 rgba(246, 207, 90, 0.55);
+  overflow: hidden;
+  /* Gradient cheo navy -> indigo -> tim, co chieu sau. */
+  background:
+    radial-gradient(120% 120% at 25% 15%, rgba(255, 255, 255, 0.35) 0%, rgba(255, 255, 255, 0) 45%),
+    linear-gradient(140deg, #3b5bd4 0%, #2a3fae 42%, #5b3fd1 100%);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.45),
+    inset 0 -6px 12px rgba(23, 20, 70, 0.4),
+    0 6px 16px rgba(60, 54, 160, 0.4);
+}
+/* Icon sparkle noi len tren, hoi do bong vang de co diem nhan gold. */
+.chat-hello-ic svg,
+.bubble-ava svg {
+  position: relative;
+  z-index: 2;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px rgba(10, 8, 40, 0.45)) drop-shadow(0 0 6px rgba(246, 207, 90, 0.5));
+}
+/* Dai sang quet cheo qua avatar. */
+.chat-hello-ic::before,
+.bubble-ava::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.45) 50%, transparent 62%);
+  transform: translateX(-120%);
 }
 .chat-hello-ic {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  margin: 0 auto 10px;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  margin: 0 auto 12px;
   font-size: 22px;
+  /* Avatar chao: troi nhe + quang sang nhip nhang cho sinh dong. */
+  animation: ava-float 4.5s ease-in-out infinite;
+}
+.chat-hello-ic::before {
+  animation: ava-shine 4.5s ease-in-out infinite;
+}
+@keyframes ava-float {
+  0%, 100% { transform: translateY(0); box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.45),
+      inset 0 -6px 12px rgba(23, 20, 70, 0.4),
+      0 8px 18px rgba(60, 54, 160, 0.4); }
+  50% { transform: translateY(-4px); box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.5),
+      inset 0 -6px 12px rgba(23, 20, 70, 0.4),
+      0 14px 26px rgba(91, 63, 209, 0.48); }
+}
+@keyframes ava-shine {
+  0%, 62%, 100% { transform: translateX(-120%); }
+  78% { transform: translateX(120%); }
+}
+/* Avatar nho o moi bong bong tra loi: khong animation cho do roi. */
+.bubble-ava:hover::before { animation: ava-shine-once 0.7s ease-out; }
+@keyframes ava-shine-once {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(120%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-hello-ic { animation: none; }
+  .chat-hello-ic::before, .bubble-ava::before { display: none; }
 }
 .bubble-row {
   display: flex;
@@ -1284,4 +1374,184 @@ code.cmd {
 }
 .day-head:first-child {
   margin-top: 0;
+}
+
+/* =========================================================================
+   Icon SVG (lucide) - thay cho emoji.
+   lucide dung stroke=currentColor nen icon an theo mau chu cua phan tu cha.
+   ========================================================================= */
+
+/* Icon nam chung dong voi chu (nut, nhan, pill, link): canh giua + cach chu. */
+.btn-link,
+.ai-badge,
+.st-pill,
+button.linkish,
+button.suggest-chip,
+button.b-main,
+button.b-gray,
+.b-white,
+.reply-text,
+.msg-said.spoken {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* SVG trong dong chu khong bi day lech duong co so. */
+.btn-link svg,
+.ai-badge svg,
+.st-pill svg,
+button.linkish svg,
+button.suggest-chip svg,
+.reply-text svg,
+.msg-said.spoken svg,
+.tl-text svg,
+.sub svg {
+  flex: none;
+  vertical-align: -2px;
+}
+
+/* Mau icon trong o tron/vuong co nen tint: theo dung tone. */
+.tile .ic svg { color: var(--brand-2); }
+.tile.warn .ic svg { color: var(--warn); }
+.tile.bad .ic svg { color: var(--bad); }
+
+.tl-ic svg { color: var(--brand-2); }
+.tl.tone-ok .tl-ic svg { color: var(--ok); }
+.tl.tone-warn .tl-ic svg { color: var(--warn); }
+.tl.tone-bad .tl-ic svg { color: var(--bad); }
+.tl.tone-muted .tl-ic svg { color: var(--dim); }
+
+/* Avatar nam tren nen hero toi mau -> icon trang. */
+.avatar svg { color: #fff; }
+/* (Mau icon avatar chat da dat o khoi .chat-hello-ic/.bubble-ava phia tren.) */
+
+/* Icon o trang thai rong (empty) diu mau. */
+.empty .big svg { color: var(--dim); opacity: 0.8; }
+
+/* =========================================================================
+   RESPONSIVE - dien thoai. Chong tran ngang, gon menu, thu nho khoang cach.
+   Ba moc: 760px (tablet nho), 560px (dien thoai), 380px (may nho).
+   ========================================================================= */
+
+/* Khong bao gio cho trang cuon ngang. */
+html, body { max-width: 100%; overflow-x: hidden; }
+
+/* Media / bang / bieu do khong day rong trang. */
+img, svg, video, canvas { max-width: 100%; }
+
+/* --- Tablet nho tro xuong: menu thu thanh ngan keo --- */
+@media (max-width: 760px) {
+  .nav {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .nav .spacer { display: none; }
+  .nav .brand { margin-right: auto; }
+  .nav-burger { display: grid; }
+
+  /* Mac dinh an cac muc; mo ra khi .mobile-open (bam hamburger). */
+  .nav-items {
+    display: none;
+    flex-basis: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .nav.mobile-open .nav-items { display: flex; }
+
+  /* Link / trigger trong ngan keo: trai dong, full rong, de cham ngon tay. */
+  .nav .nav-items a,
+  .nav-trigger {
+    width: 100%;
+    text-align: left;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 15px;
+  }
+  .nav-group { width: 100%; }
+  .nav-trigger { justify-content: space-between; }
+
+  /* Sub-menu hien ngay trong dong (khong noi de), thut vao mot chut. */
+  .nav-group.open .nav-menu {
+    position: static;
+    min-width: 0;
+    width: 100%;
+    margin: 2px 0 6px;
+    box-shadow: none;
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.06);
+    animation: none;
+  }
+  .nav .nav-menu a { color: #eaf0fb; }
+  .nav .nav-menu a span { color: #b9c6e8; }
+  .nav .nav-menu a:hover,
+  .nav .nav-menu a.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
+  .nav .nav-menu a.on { box-shadow: inset 3px 0 0 var(--gold); }
+}
+
+/* --- Dien thoai --- */
+@media (max-width: 560px) {
+  .wrap { padding: 14px 12px 36px; }
+  .card { padding: 15px 14px 14px; border-radius: 16px; }
+
+  /* Tieu de nho lai cho vua man hinh hep. */
+  h1 { font-size: 19px; }
+  .hero2 { padding: 20px 18px; border-radius: 18px; }
+  .hero2-title { font-size: 22px; }
+  .hero2-detail { font-size: 14.5px; }
+  .hero2-count { font-size: 44px; }
+  .avatar { width: 52px; height: 52px; border-radius: 16px; }
+
+  /* Hang nut: cho moi nut chiem tron chieu rong -> khong tran, de bam. */
+  .btns { gap: 8px; }
+  .btns > button,
+  .btns > .btn-link { flex: 1 1 100%; justify-content: center; }
+  .hero2-side .btns > .btn-link { flex-basis: auto; }
+
+  /* .inline (vd trang Bao cao): xep doc, nut full rong. */
+  .inline { flex-direction: column; align-items: stretch; }
+  .inline > * { flex: 1 1 auto; }
+
+  /* Hero (trang ky thuat) cac nut to full rong. */
+  .hero .btns { width: 100%; }
+  .hero .btns button.big { flex: 1 1 100%; min-width: 0; }
+
+  /* Bang: bao dam chi vung bang cuon ngang, khong keo ca trang. */
+  .scroll { max-width: 100%; -webkit-overflow-scrolling: touch; }
+  table { font-size: 13px; }
+  th, td { padding: 8px 9px; }
+
+  /* Sinh hieu + 2 cot -> 1 cot cho de doc. */
+  .vitals { grid-template-columns: 1fr; }
+
+  /* KPI gon lai 2 cot thay vi tu dan mong. */
+  .kpi { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* Timeline: thu cot gio + icon cho vua. */
+  .tl { grid-template-columns: 42px 28px 1fr; gap: 6px; font-size: 14px; }
+  .tl-ic { width: 28px; height: 28px; }
+  .timeline::before { left: 62px; }
+
+  /* Chat: bong bong rong hon, khung nhap chac tay. */
+  .bubble { max-width: 88%; font-size: 15px; }
+  .chat-list { height: min(62vh, 520px); padding: 16px 14px 8px; }
+  .chat-input { padding: 10px 14px; }
+  .suggest { padding: 10px 14px 0; }
+  .chat-foot { padding: 0 14px 12px; gap: 10px; }
+
+  /* Pill/tab xuong dong goi gang. */
+  .tabs { width: 100%; }
+  .page-head { align-items: flex-start; }
+}
+
+/* --- May rat nho (<=380px): KPI ve 1 cot cho so khong bi chen. --- */
+@media (max-width: 380px) {
+  .kpi { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: 1fr; }
+  .hero2-title { font-size: 20px; }
 }

@@ -14,6 +14,12 @@ docs/code_graph/
 .playwright-mcp/
 semantic-review/
 
+# Python cache, log va ket qua chay notebook tren may (dataset zip > 100 MB)
+__pycache__/
+*.pyc
+*.log
+tools/kaggle/oalpha_output/
+
 # File nhap / ca nhan o thu muc goc, khong thuoc ma nguon
 # (xoa dong tuong ung neu muon dua file do len Git)
 /NOTED.md

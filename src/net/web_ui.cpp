@@ -9,6 +9,7 @@
 #include "assistant.h"
 #include "fall_model.h"
 #include "rf_remote.h"
+#include "wifi_mgr.h"
 
 #include <WiFi.h>
 #include <LittleFS.h>
@@ -148,9 +149,13 @@ String statusJson() {
     JsonObject jw = doc["wifi"].to<JsonObject>();
     const bool up = WiFi.status() == WL_CONNECTED;
     jw["up"]   = up;
-    jw["ssid"] = WIFI_SSID;
-    jw["rssi"] = up ? WiFi.RSSI() : 0;
-    jw["ip"]   = up ? WiFi.localIP().toString() : String("-");
+    // SSID đang nối THẬT (không còn là hằng WIFI_SSID). Khi chưa nối thì trả "-".
+    jw["ssid"]   = up ? WiFi.SSID() : String("-");
+    jw["rssi"]   = up ? WiFi.RSSI() : 0;
+    jw["ip"]     = up ? WiFi.localIP().toString() : String("-");
+    jw["saved"]  = (uint32_t)WifiMgr::count();     // số mạng đã lưu trong NVS
+    jw["portal"] = WifiMgr::portalActive();        // đang ở chế độ AP cấu hình?
+    jw["ap"]     = String(WifiMgr::apSsid());      // tên AP (rỗng nếu không bật)
 
     JsonObject jt = doc["telegram"].to<JsonObject>();
     jt["pending"]  = Notifier::pending();
@@ -463,6 +468,60 @@ bool begin() {
 
     // Lời nhắn người nhà: thân là nguyên file WAV, loa đọc khi rảnh (xem onSayBody)
     g_server.on("/api/say", HTTP_POST, onSayRequest, nullptr, onSayBody);
+
+    // ---------------------- QUẢN LÝ ĐA WI-FI ----------------------
+    // Quét các mạng xung quanh -> JSON [{ssid,rssi,enc}]. Quét đồng bộ (~2-3s)
+    // nên chỉ gọi khi người dùng bấm "Quét" trên trang web.
+    g_server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (blocked(request)) return;
+        request->send(200, "application/json", WifiMgr::scanJson());
+    });
+
+    // Danh sách mạng ĐÃ LƯU (chỉ SSID, KHÔNG kèm mật khẩu).
+    g_server.on("/api/wifi/list", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (blocked(request)) return;
+        request->send(200, "application/json", WifiMgr::listJson());
+    });
+
+    // Thêm/cập nhật một mạng rồi thử nối ngay. Tham số ssid, pass (form hoặc URL).
+    auto handleWifiAdd = [](AsyncWebServerRequest* request) {
+        if (blocked(request)) return;
+        String ssid, pass;
+        if (request->hasParam("ssid", true))      ssid = request->getParam("ssid", true)->value();
+        else if (request->hasParam("ssid"))       ssid = request->getParam("ssid")->value();
+        if (request->hasParam("pass", true))      pass = request->getParam("pass", true)->value();
+        else if (request->hasParam("pass"))       pass = request->getParam("pass")->value();
+
+        if (ssid.length() == 0) {
+            request->send(400, "application/json", "{\"ok\":false,\"err\":\"thieu ten mang\"}");
+            return;
+        }
+        if (WifiMgr::add(ssid, pass))
+            request->send(200, "application/json", "{\"ok\":true}");
+        else
+            request->send(507, "application/json", "{\"ok\":false,\"err\":\"danh sach day\"}");
+    };
+    g_server.on("/api/wifi/add", HTTP_POST, handleWifiAdd);
+    g_server.on("/api/wifi/add", HTTP_GET,  handleWifiAdd);   // tiện thử bằng thanh địa chỉ
+
+    // Xóa một mạng đã lưu theo SSID.
+    auto handleWifiRemove = [](AsyncWebServerRequest* request) {
+        if (blocked(request)) return;
+        String ssid;
+        if (request->hasParam("ssid", true))      ssid = request->getParam("ssid", true)->value();
+        else if (request->hasParam("ssid"))       ssid = request->getParam("ssid")->value();
+
+        if (ssid.length() == 0) {
+            request->send(400, "application/json", "{\"ok\":false,\"err\":\"thieu ten mang\"}");
+            return;
+        }
+        if (WifiMgr::remove(ssid))
+            request->send(200, "application/json", "{\"ok\":true}");
+        else
+            request->send(404, "application/json", "{\"ok\":false,\"err\":\"khong tim thay mang\"}");
+    };
+    g_server.on("/api/wifi/remove", HTTP_POST, handleWifiRemove);
+    g_server.on("/api/wifi/remove", HTTP_GET,  handleWifiRemove);
 
     // Trang tĩnh trong LittleFS (data/index.html)
     auto& stat = g_server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");

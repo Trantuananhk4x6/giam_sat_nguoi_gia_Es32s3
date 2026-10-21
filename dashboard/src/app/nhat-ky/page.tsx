@@ -4,6 +4,7 @@
    Kỹ thuật > Giám sát thiết bị (và tải CSV được ở đây). */
 import { useEffect, useState } from "react";
 import { capFirst, dayVN } from "@/components/labels";
+import { Ic, IcKey } from "@/components/Icon";
 import type { FriendlyEvent } from "@/lib/health";
 
 type Res = { call: string; days: number; items: FriendlyEvent[] };
@@ -69,7 +70,7 @@ export default function NhatKyPage() {
       </div>
       {err && <div className="badbox">{err}</div>}
       {data && groups.length === 0 && (
-        <div className="card"><div className="empty"><span className="big" aria-hidden>🌤️</span>Chưa có diễn biến nào trong khoảng này.</div></div>
+        <div className="card"><div className="empty"><span className="big" aria-hidden><Ic name="calm" size={30} /></span>Chưa có diễn biến nào trong khoảng này.</div></div>
       )}
       {groups.map((g) => (
         <div className="card" key={g.day} style={{ marginBottom: 16 }}>
@@ -88,7 +89,7 @@ export default function NhatKyPage() {
             {g.list.map((e) => (
               <li key={e.key} className={`tl tone-${e.tone}`}>
                 <span className="tl-time">{e.time}</span>
-                <span className="tl-ic" aria-hidden>{e.icon}</span>
+                <span className="tl-ic" aria-hidden><IcKey name={e.icon} size={18} /></span>
                 <span className="tl-text">{capFirst(e.text)}</span>
               </li>
             ))}

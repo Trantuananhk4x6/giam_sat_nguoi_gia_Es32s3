@@ -102,6 +102,67 @@ export function fetchFeatures(host: string, since: number): Promise<FeatureRespo
   return get<FeatureResponse>(host, `/api/features?since=${since}`);
 }
 
+// --------------------------------------------------------------- Wi-Fi ------
+
+/** Một mạng Wi-Fi quét được xung quanh thiết bị (GET /api/wifi/scan) */
+export type WifiScanEntry = {
+  ssid: string;
+  /** Cường độ tín hiệu (dBm), càng gần 0 càng mạnh */
+  rssi: number;
+  /** Kiểu mã hóa do firmware trả về (0 = mạng mở, khác 0 = có mật khẩu) */
+  enc: number;
+};
+
+/** Một mạng Wi-Fi đã lưu trong firmware (GET /api/wifi/list) — KHÔNG kèm mật khẩu */
+export type WifiSavedEntry = { ssid: string };
+
+/**
+ * Gửi form application/x-www-form-urlencoded sang firmware (dùng cho add/remove).
+ * Firmware trả 2xx khi nhận lệnh; mọi mã khác coi là lỗi để route trả 502.
+ */
+async function postForm(host: string, pathname: string, fields: Record<string, string>): Promise<void> {
+  const url = `${baseUrl(host)}${pathname}`;
+  const body = new URLSearchParams(fields).toString();
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`ESP32 trả về HTTP ${res.status} cho ${pathname}`);
+}
+
+/**
+ * Quét các mạng Wi-Fi xung quanh thiết bị. Việc quét mất ~2–3 giây nên dùng thời
+ * gian chờ dài hơn lệnh thường để không bị cắt ngang giữa chừng.
+ */
+export async function wifiScan(host: string): Promise<WifiScanEntry[]> {
+  const url = `${baseUrl(host)}/api/wifi/scan`;
+  const res = await fetch(url, {
+    headers: authHeaders(),
+    signal: AbortSignal.timeout(8000),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`ESP32 trả về HTTP ${res.status} cho /api/wifi/scan`);
+  return (await res.json()) as WifiScanEntry[];
+}
+
+/** Lấy danh sách mạng Wi-Fi đã lưu trong firmware (không kèm mật khẩu) */
+export function wifiList(host: string): Promise<WifiSavedEntry[]> {
+  return get<WifiSavedEntry[]>(host, "/api/wifi/list");
+}
+
+/** Lưu một mạng Wi-Fi mới rồi yêu cầu firmware kết nối */
+export function wifiAdd(host: string, ssid: string, pass: string): Promise<void> {
+  return postForm(host, "/api/wifi/add", { ssid, pass });
+}
+
+/** Xóa một mạng Wi-Fi đã lưu khỏi firmware */
+export function wifiRemove(host: string, ssid: string): Promise<void> {
+  return postForm(host, "/api/wifi/remove", { ssid });
+}
+
 /** Chuyển tiếp một thao tác (iamok, sos, simfall, testvoice, testtg, ...) */
 export async function sendAction(host: string, name: string): Promise<void> {
   const url = `${baseUrl(host)}/api/action?name=${encodeURIComponent(name)}`;

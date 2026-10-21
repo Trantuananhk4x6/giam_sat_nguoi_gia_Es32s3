@@ -73,7 +73,23 @@ export type Esp32Status = {
     rejected: number;
     lastCode: number;
   };
-  wifi: { up: boolean; ssid: string; rssi: number; ip: string };
+  /**
+   * Trạng thái Wi-Fi của thiết bị.
+   *  - up: đang nối được một mạng Wi-Fi nhà (chế độ station).
+   *  - saved: số mạng đã lưu trong firmware.
+   *  - portal: đang mở cổng cấu hình (captive portal) để nhập Wi-Fi.
+   *  - ap: đang phát Wi-Fi riêng (access point) cho điện thoại nối vào cấu hình.
+   * saved/portal/ap do firmware mới bổ sung nên để optional cho tương thích ngược.
+   */
+  wifi: {
+    up: boolean;
+    ssid: string;
+    rssi: number;
+    ip: string;
+    saved?: number;
+    portal?: boolean;
+    ap?: boolean;
+  };
   telegram: {
     pending: number;
     sent: number;

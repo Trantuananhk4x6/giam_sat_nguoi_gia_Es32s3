@@ -60,7 +60,8 @@ toàn vẫn chạy nguyên vẹn. Xem [dashboard/README.md](dashboard/README.md)
 | `src/net/web_ui.*` | Máy chủ web + WebSocket + các API |
 | **`src/storage/`** | **Lưu trữ** |
 | `src/storage/event_log.*` | Nhật ký sự kiện trong LittleFS, xuất CSV cho Excel |
-| `include/model_weights.h` | Trọng số model — sinh ra từ bộ huấn luyện (script TypeScript trong `dashboard/src/lib/train.ts`) |
+| `include/model_weights.h` | Trọng số model — sinh ra từ notebook `tools/kaggle/huan_luyen_model_te_nga.ipynb` |
+| `tools/kaggle/` | Notebook huấn luyện model trên Kaggle (bản `.py` y hệt để chạy trên máy) |
 | `data/index.html` | Trang giám sát (nạp vào LittleFS) |
 | `data/*.wav` | Câu hỏi thăm phát ra loa |
 | `tools/` | Script tạo WAV mẫu, 2 mẫu bảng số liệu thực nghiệm |
@@ -322,9 +323,10 @@ nhà sản xuất. Để có phần AI **do bạn làm**, firmware này còn ch�
 bộ phân loại **hồi quy logistic** học từ chính dữ liệu bạn đo:
 
 ```
-  Radar  ──►  chuỗi đặc trưng 4 mẫu/giây  ──►  dashboard thu + gán nhãn
-                                                      │
-                                               huấn luyện (TypeScript)
+  Radar  ──►  chuỗi đặc trưng 4 mẫu/giây  ──►  dashboard thu + gán nhãn lần thử
+                                                      │  Tải dữ liệu huấn luyện (JSON)
+                                                      ▼
+                     notebook Kaggle (+ dataset mm-ADL đã chuyển sang tín hiệu C1001)
                                                       │
                                            model_weights.h  ──►  nạp vào ESP32
                                                       │
@@ -333,15 +335,11 @@ bộ phân loại **hồi quy logistic** học từ chính dữ liệu bạn đo
 
 **Ba bước:**
 
-1. Đo thực nghiệm như bình thường ở dashboard (nhớ để dashboard chạy trong lúc đo
-   — nó tự thu chuỗi đặc trưng từ `/api/features`).
-2. Huấn luyện bằng bộ train TypeScript (`dashboard/src/lib/train.ts`) để sinh ra
-   `include/model_weights.h`. Các bước chi tiết xem [docs/huan_luyen_model.md](docs/huan_luyen_model.md).
-3. Ghi đè `include/model_weights.h` bằng file vừa sinh rồi `pio run -t upload`.
-
-> Lưu ý: trang "Huấn luyện model" trên dashboard đã được gỡ bỏ cho gọn; phần
-> model trong firmware (`src/core/fall_model.*`) vẫn giữ nguyên và chạy song song
-> với thuật toán của chip radar.
+1. Đo thực nghiệm ở dashboard (để dashboard chạy suốt lúc đo — nó tự thu chuỗi đặc
+   trưng từ `/api/features`), rồi *Báo cáo & biểu đồ* → **Tải dữ liệu huấn luyện (Kaggle)**.
+2. Chạy notebook [`tools/kaggle/huan_luyen_model_te_nga.ipynb`](tools/kaggle/huan_luyen_model_te_nga.ipynb)
+   trên Kaggle (CPU, 1–2 phút). Nơi lấy dataset và từng bước bấm: [docs/huan_luyen_model.md](docs/huan_luyen_model.md).
+3. Tải `model_weights.h` ở tab *Output*, chép đè `include/model_weights.h` rồi `pio run -t upload`.
 
 Trang giám sát sẽ hiện cả hai kết quả: của chip radar và của model bạn.
 
@@ -530,11 +528,11 @@ trình xác nhận hai bước để giảm báo động giả, hệ thống ghi
 giá định lượng. Nếu GVHD muốn phần AI do chính bạn viết, hãy trao đổi **trước khi
 chốt đề cương**.
 
-**Huấn luyện model + nguồn dataset:** xem hướng dẫn chi tiết tại
-[docs/huan_luyen_model.md](docs/huan_luyen_model.md) — gồm nơi lấy dataset tham
-khảo (mm-ADL, SisFall, URFD, mmFall) và các bước tự đo dữ liệu + train từng bước.
-Lưu ý quan trọng: dataset ngoài **không nạp thẳng** vào pipeline được vì dùng cảm
-biến khác; model phải huấn luyện trên dữ liệu đo bằng chính radar C1001.
+**Huấn luyện model + nguồn dataset:** xem [docs/huan_luyen_model.md](docs/huan_luyen_model.md)
+và notebook `tools/kaggle/huan_luyen_model_te_nga.ipynb`. Dữ liệu sát nhất là dữ
+liệu tự đo bằng chính C1001; dataset radar 60 GHz công khai mm-ADL / mm-ADL-Home
+(Zenodo, CC BY 4.0) được notebook chuyển sang tín hiệu kiểu C1001 để bổ sung. Phép
+chuyển là xấp xỉ, nên số liệu báo cáo vẫn lấy trên dữ liệu tự đo.
 
 ---
 

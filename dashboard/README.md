@@ -157,6 +157,12 @@ rồi hiện ra ở `app/bao-cao/page.tsx`.
 
 ## 5. Huấn luyện model (bộ train trong `src/lib/train.ts`)
 
+> **Cách train hiện tại:** trang *Báo cáo & biểu đồ* → **Tải dữ liệu huấn luyện
+> (Kaggle)** (`GET /api/export?kind=train`) rồi chạy notebook
+> `tools/kaggle/huan_luyen_model_te_nga.ipynb`. Notebook dùng đúng cách gán nhãn mô
+> tả dưới đây, thêm dữ liệu công khai mm-ADL và xuất `model_weights.h`. Xem
+> `docs/huan_luyen_model.md`.
+
 Bộ huấn luyện (`src/lib/train.ts`) dựng bộ phân loại **hồi quy logistic** từ dữ
 liệu bạn đo rồi xuất trọng số thành file C (`include/model_weights.h`) để nạp vào
 ESP32. (Trang bấm nút "Huấn luyện model" trước đây đã được gỡ cho gọn; logic train

@@ -80,39 +80,40 @@ function secondsIn(note: string, re: RegExp): string | null {
 export function friendlyEvent(e: StoredEvent, call: string): FriendlyEvent | null {
   const C = cap(call);
   const note = e.note ?? "";
-  let icon = "•";
+  // icon la MOT KHOA (xem components/Icon.tsx), khong phai emoji nua.
+  let icon = "dot";
   let text = "";
   let tone: Tone = "info";
   switch (e.type) {
-    case "PRESENCE_IN": icon = "🚪"; text = `${C} vào phòng`; tone = "ok"; break;
-    case "PRESENCE_OUT": icon = "👋"; text = `${C} ra khỏi phòng`; tone = "muted"; break;
+    case "PRESENCE_IN": icon = "door"; text = `${C} vào phòng`; tone = "ok"; break;
+    case "PRESENCE_OUT": icon = "leave"; text = `${C} ra khỏi phòng`; tone = "muted"; break;
     case "FALL_SUSPECT":
       if (e.state !== "NGHI_NGO_TE_NGA") return null; // radar báo lặp trong thời gian nghỉ
-      icon = "⚠️"; text = `Nghi ngờ ${call} bị ngã, loa đã hỏi thăm`; tone = "warn"; break;
+      icon = "warning"; text = `Nghi ngờ ${call} bị ngã, loa đã hỏi thăm`; tone = "warn"; break;
     case "CANCELLED": {
       const s = secondsIn(note, /phan hoi sau\s+([\d.]+)s/i);
-      icon = "🙆"; text = `${C} bấm “Tôi ổn”${s ? ` sau ${s} giây` : ""}`; tone = "ok"; break;
+      icon = "ok"; text = `${C} bấm “Tôi ổn”${s ? ` sau ${s} giây` : ""}`; tone = "ok"; break;
     }
-    case "SOS": icon = "🆘"; text = `${C} bấm nút SOS`; tone = "bad"; break;
-    case "SOS_REMOTE": icon = "🆘"; text = `${C} bấm nút SOS đeo tay`; tone = "bad"; break;
-    case "EMERGENCY": icon = "🚨"; text = "Đã phát cảnh báo khẩn cấp cho người nhà"; tone = "bad"; break;
+    case "SOS": icon = "sos"; text = `${C} bấm nút SOS`; tone = "bad"; break;
+    case "SOS_REMOTE": icon = "sos"; text = `${C} bấm nút SOS đeo tay`; tone = "bad"; break;
+    case "EMERGENCY": icon = "emergency"; text = "Đã phát cảnh báo khẩn cấp cho người nhà"; tone = "bad"; break;
     case "TELEGRAM_OK": {
       const s = secondsIn(note, /tong\s+([\d.]+)s/i);
-      icon = "📨"; text = `Tin báo đã tới người nhà${s ? ` (${s} giây sau sự cố)` : ""}`; tone = "info"; break;
+      icon = "msg-sent"; text = `Tin báo đã tới người nhà${s ? ` (${s} giây sau sự cố)` : ""}`; tone = "info"; break;
     }
-    case "TELEGRAM_FAIL": icon = "📵"; text = "Gửi tin báo cho người nhà bị lỗi"; tone = "warn"; break;
-    case "RECOVERED": icon = "✅"; text = `Đã xác nhận ${call} an toàn`; tone = "ok"; break;
-    case "VITALS_ALERT": icon = "💓"; text = "Nhịp tim/nhịp thở ước lượng bất thường"; tone = "warn"; break;
-    case "RADAR_ERROR": icon = "📡"; text = "Cảm biến radar gặp lỗi"; tone = "warn"; break;
-    case "WIFI_DOWN": icon = "📶"; text = "Thiết bị mất Wi-Fi"; tone = "warn"; break;
-    case "BOOT": icon = "🔄"; text = "Thiết bị khởi động lại"; tone = "muted"; break;
-    case "MODE_SWITCH": icon = "🌙"; text = "Radar đổi chế độ (theo dõi giấc ngủ / phát hiện ngã)"; tone = "muted"; break;
+    case "TELEGRAM_FAIL": icon = "msg-fail"; text = "Gửi tin báo cho người nhà bị lỗi"; tone = "warn"; break;
+    case "RECOVERED": icon = "ok"; text = `Đã xác nhận ${call} an toàn`; tone = "ok"; break;
+    case "VITALS_ALERT": icon = "vitals"; text = "Nhịp tim/nhịp thở ước lượng bất thường"; tone = "warn"; break;
+    case "RADAR_ERROR": icon = "radar"; text = "Cảm biến radar gặp lỗi"; tone = "warn"; break;
+    case "WIFI_DOWN": icon = "wifi"; text = "Thiết bị mất Wi-Fi"; tone = "warn"; break;
+    case "BOOT": icon = "reboot"; text = "Thiết bị khởi động lại"; tone = "muted"; break;
+    case "MODE_SWITCH": icon = "moon"; text = "Radar đổi chế độ (theo dõi giấc ngủ / phát hiện ngã)"; tone = "muted"; break;
     case "MESSAGE": {
       if (/^bo qua|^ngat/i.test(note)) {
-        icon = "🔇"; text = "Lời nhắn chưa được đọc vì loa đang dùng cho cảnh báo"; tone = "muted";
+        icon = "speaker-off"; text = "Lời nhắn chưa được đọc vì loa đang dùng cho cảnh báo"; tone = "muted";
       } else {
         const from = /^tu\s+(.+)$/i.exec(note)?.[1];
-        icon = "🔊"; text = from ? `Loa đã đọc lời nhắn của ${from}` : "Loa đã đọc lời nhắn của người nhà"; tone = "info";
+        icon = "speaker"; text = from ? `Loa đã đọc lời nhắn của ${from}` : "Loa đã đọc lời nhắn của người nhà"; tone = "info";
       }
       break;
     }

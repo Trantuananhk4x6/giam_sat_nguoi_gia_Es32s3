@@ -17,6 +17,7 @@
 # | 1 | **Tự đo bằng chính C1001** — dashboard → *Báo cáo & biểu đồ* → **Tải dữ liệu huấn luyện (Kaggle)** | Cùng cảm biến, cùng vị trí lắp trần 2,7 m, cùng 10 đặc trưng. **Sát nhất, số liệu báo cáo lấy ở đây** | *Create → New Dataset* → upload `oalpha_du_lieu_huan_luyen.json` |
 # | 2 | **mm-ADL** · Zenodo `10.5281/zenodo.22405011` · 214 MB · CC BY 4.0 | Radar 60 GHz (TI IWR6843) cùng dải tần với C1001; 11 người, khoảng 50 cú ngã mỗi người, kèm ngồi ghế, nằm giường (ca dễ nhầm) | *New Dataset* → tab *Link* → dán `https://zenodo.org/records/22405011/files/mm-adl-v1.0.zip?download=1` |
 # | 3 | **mm-ADL-Home** · Zenodo `10.5281/zenodo.23456178` · 134 MB · CC BY 4.0 | Cùng radar, quay trong căn hộ có đồ đạc, ghi liên tục 15–20 phút: dùng làm **dữ liệu gần thực tế** | như trên với `https://zenodo.org/records/23456178/files/mm-ADL-Home-v1.0.zip?download=1` |
+# | 4 | **RadHAR** · GitHub `nesl/RadHAR` · point cloud TI mmWave | 5 hoạt động THƯỜNG (đấm, nhảy, bật, ngồi xổm, đi) — KHÔNG có ngã. Dùng làm **lớp "không ngã" phong phú** để GIẢM BÁO NHẦM | tự tải từ GitHub khi bật Internet, hoặc *Add Data* dataset RadHAR (giữ cấu trúc `Data/Train/<hoạt động>/*.txt`) |
 #
 # Không muốn tạo dataset thì bật *Settings → Internet: On*, notebook tự tải nguồn 2 và 3 từ Zenodo.
 #
@@ -85,6 +86,7 @@ LANDING_WIN = (-0.25, 2.0)  # mm-ADL: cửa sổ KẾT THÚC từ 0,25 s trướ
 
 # ---- Huấn luyện ----
 USE_OWN, USE_MMADL, USE_MMADL_HOME = True, True, True
+USE_RADHAR = True           # RadHAR: point cloud TI mmWave, 5 hoat dong THUONG (khong nga) -> lam day lop 'khong nga', giam bao nham
 W_OWN = 3.0                 # mỗi cửa sổ tự đo nặng gấp 3 cửa sổ dữ liệu công khai
 CALIBRATE_AMPLITUDE = True  # khớp thang biên độ mm-ADL với C1001 khi đủ dữ liệu tự đo
 C_GRID = [0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
@@ -216,7 +218,8 @@ SRC_HOME = find_public("mm-adl-home") if USE_MMADL_HOME else None
 print("Du lieu tu do :", OWN_FILES or "CHUA CO -> model chi de thu, chua dua vao bao cao duoc")
 print("mm-ADL        :", SRC_MMADL)
 print("mm-ADL-Home   :", SRC_HOME)
-if not (OWN_FILES or SRC_MMADL or SRC_HOME):
+print("RadHAR        :", "BAT (doc o muc 5c)" if USE_RADHAR else "tat")
+if not (OWN_FILES or SRC_MMADL or SRC_HOME or USE_RADHAR):
     raise SystemExit("Khong co du lieu nao. Xem bang 'Lay du lieu o dau' o dau notebook.")
 
 # %% [markdown]
@@ -597,7 +600,158 @@ def load_public(src, kind):
     return seqs
 
 
-PUB_SEQS = load_public(SRC_MMADL, "mm-adl") + load_public(SRC_HOME, "mm-adl-home")
+# ---- RadHAR: point cloud TI mmWave, 5 hoat dong THUONG (boxing/jack/jump/squats/walk) ----
+# Khong co nhan "nga" -> toan bo gan nhan 0 ("khong nga"), lam day lop am de GIAM BAO NHAM.
+# File .txt dang khoi phan tach bang "---", moi diem la cac dong "key: value"
+# (point_id=0 bat dau mot frame). Tai thang tu GitHub raw khi chay Kaggle co Internet,
+# hoac doc tu dataset da add-data (tim file *_walk_*.txt ... trong /kaggle/input).
+RADHAR_RAW = "https://raw.githubusercontent.com/nesl/RadHAR/master/Data/"
+RADHAR_SPLITS = {"Train": ["boxing", "jack", "jump", "squats", "walk"]}
+RADHAR_MAX_FILES = int(os.environ.get("OALPHA_RADHAR_MAX", "40"))  # gioi han so file cho nhanh; 0 = lay het
+
+
+def _radhar_list_remote():
+    """Liet ke duong dan file .txt cua RadHAR qua git trees API (khong can tai ca repo)."""
+    try:
+        import urllib.request as _u
+        req = _u.Request("https://api.github.com/repos/nesl/RadHAR/git/trees/master?recursive=1",
+                         headers={"User-Agent": "oalpha"})
+        tree = json.loads(_u.urlopen(req, timeout=30).read())["tree"]
+    except Exception as err:
+        print(f"  RadHAR: khong liet ke duoc qua API ({err})")
+        return []
+    out = []
+    for node in tree:
+        path = node.get("path", "")
+        for split, acts in RADHAR_SPLITS.items():
+            for act in acts:
+                if path.startswith(f"Data/{split}/{act}/") and path.endswith(".txt"):
+                    out.append((act, path))
+    return out
+
+
+def _radhar_find_local():
+    """Tim file RadHAR da add-data tren Kaggle: */Data/<split>/<act>/*.txt."""
+    out = []
+    for act in sum(RADHAR_SPLITS.values(), []):
+        for pth in walk([f"**/Data/*/{act}/*.txt", f"**/{act}/*_{act}_*.txt"]):
+            out.append((act, pth))
+    return out
+
+
+def _radhar_parse(text):
+    """Chuoi file RadHAR -> cac frame: moi frame la (secs.nsecs, mang diem [x,y,z,v])."""
+    frames, cur, t_cur = [], [], None
+    rec = {}
+    for blk in text.split("---"):
+        rec = {}
+        for line in blk.splitlines():
+            line = line.strip()
+            m = re.match(r"^(secs|nsecs|point_id|x|y|z|velocity):\s*(-?[\d.]+)", line)
+            if m:
+                rec[m.group(1)] = m.group(2)
+        if "point_id" not in rec or "x" not in rec:
+            continue
+        pid = int(float(rec["point_id"]))
+        if pid == 0 and cur:                    # point_id ve 0 => frame moi
+            frames.append((t_cur, np.array(cur, float)))
+            cur = []
+        if "secs" in rec and "nsecs" in rec:
+            t_cur = float(rec["secs"]) + float(rec["nsecs"]) * 1e-9
+        cur.append([float(rec.get("x", 0)), float(rec.get("y", 0)),
+                    float(rec.get("z", 0)), float(rec.get("velocity", 0))])
+    if cur:
+        frames.append((t_cur, np.array(cur, float)))
+    return [(tt, pts) for tt, pts in frames if tt is not None and len(pts)]
+
+
+def _radhar_to_raw(frames):
+    """Frame RadHAR -> dict 'raw' giong to_c1001 (has, amp, dist, ang, labs, times), nhan 0 het.
+
+    Dung CHUNG cach dung tin hieu cua 'radar ao gan tran' nhu mm-ADL: khoang cach va goc
+    tinh tu radar tren tran cao INSTALL_HEIGHT_M, bien do tu van toc theo huong nhin + rung
+    tay chan, qua ham bao hoa 100*(1-exp(-v/AMP_V0)).
+    """
+    if not frames:
+        return None
+    t0 = frames[0][0]
+    B = int(np.floor((frames[-1][0] - t0) / PERIOD_S)) + 1
+    P = np.full((B, 3), np.nan); vstd = np.zeros(B); has = np.zeros(B, bool)
+    acc = {}
+    for tt, pts in frames:
+        b = int(np.floor((tt - t0) / PERIOD_S))
+        if 0 <= b < B:
+            acc.setdefault(b, []).append(pts)
+    for b, lst in acc.items():
+        allp = np.vstack(lst)
+        z = allp[:, 2]
+        h = z + MMADL_SENSOR_H if np.median(z) < 0.5 else z   # Z tu radar hay tu san
+        P[b] = [np.median(allp[:, 0]), np.median(allp[:, 1]), np.median(h)]
+        vstd[b] = np.std(allp[:, 3]) if len(allp) > 1 else 0.0
+        has[b] = True
+    # Radar ao: dat ngay tren tam vung hoat dong cua nguoi
+    x0, y0 = np.nanmedian(P[has, 0]), np.nanmedian(P[has, 1])
+    radar = np.array([x0, y0, INSTALL_HEIGHT_M])
+    Ps = pd.DataFrame(P).rolling(3, center=True, min_periods=1).median().to_numpy()
+    los = Ps - radar
+    dist = np.linalg.norm(los, axis=1)
+    rh = np.linalg.norm(los[:, :2], axis=1)
+    ang = np.degrees(np.arctan2(rh, np.maximum(INSTALL_HEIGHT_M - Ps[:, 2], 0.05)))
+    vel = np.gradient(Ps, PERIOD_S, axis=0)
+    v_los = np.abs(np.nansum(vel * los, axis=1) / np.maximum(dist, 1e-6))
+    v_los[~np.isfinite(v_los) | ~has] = 0.0
+    motion = np.maximum(np.maximum(v_los, MICRO_GAIN * vstd) - AMP_DEADBAND, 0.0)
+    amp = np.clip(np.round(100 * (1 - np.exp(-motion / AMP_V0))), 0, 100)
+    labs = np.array(["Walking"] * B, dtype=object)   # toan bo la sinh hoat thuong -> nhan 0
+    times = t0 + (np.arange(B) + 0.5) * PERIOD_S
+    return dict(has=has, amp=amp, dist=dist, ang=ang, labs=labs, times=times)
+
+
+def load_radhar():
+    """Doc RadHAR (local da add-data truoc, khong co thi tai tu GitHub) -> seqs nhan 0."""
+    if not USE_RADHAR:
+        return []
+    items = _radhar_find_local()
+    source = "local"
+    if not items and ALLOW_DOWNLOAD:
+        items = _radhar_list_remote()
+        source = "github"
+    if not items:
+        print("RadHAR: khong tim thay (add-data tren Kaggle, hoac bat Internet de tai)")
+        return []
+    if RADHAR_MAX_FILES and len(items) > RADHAR_MAX_FILES:
+        # Lay deu cac hoat dong cho can bang
+        by_act = {}
+        for act, ref in items:
+            by_act.setdefault(act, []).append((act, ref))
+        per = max(1, RADHAR_MAX_FILES // len(by_act))
+        items = sum([v[:per] for v in by_act.values()], [])
+    seqs, t_start = [], time.time()
+    import urllib.request as _u
+    for k, (act, ref) in enumerate(items, 1):
+        try:
+            if source == "github":
+                url = RADHAR_RAW + act + "/" + Path(ref).name.replace(" ", "%20") \
+                      if "/" not in ref else RADHAR_RAW.rsplit("/Data/", 1)[0] + "/" + ref.replace(" ", "%20")
+                url = "https://raw.githubusercontent.com/nesl/RadHAR/master/" + ref.replace(" ", "%20")
+                req = _u.Request(url, headers={"User-Agent": "oalpha"})
+                text = _u.urlopen(req, timeout=60).read().decode("utf-8", "ignore")
+            else:
+                text = Path(ref).read_text(encoding="utf-8", errors="ignore")
+            raw = _radhar_to_raw(_radhar_parse(text))
+        except Exception as err:
+            print(f"  bo RadHAR {ref}: {err}")
+            continue
+        if raw is None:
+            continue
+        seqs.append(dict(domain="radhar", group=f"radhar-{act}", name=f"radhar/{act}/{k}",
+                         protocol=act, raw=raw, y=window_labels(raw["labs"])))
+        if k % 10 == 0 or k == len(items):
+            print(f"  radhar: {k}/{len(items)} file ({time.time() - t_start:.0f} s)")
+    return seqs
+
+
+PUB_SEQS = load_public(SRC_MMADL, "mm-adl") + load_public(SRC_HOME, "mm-adl-home") + load_radhar()
 for _s in PUB_SEQS:
     _s["seq"] = c1001_samples(_s["raw"])
 if PUB_SEQS:
@@ -662,7 +816,9 @@ def plot_example():
         ax.axvspan(shade[0] * PERIOD_S, (shade[-1] + 1) * PERIOD_S, color="#e23d4b", alpha=0.15, label="Nhan Falling")
     ax.set_xlabel("giay"); ax.set_ylabel("bien do"); ax2.set_ylabel("cm")
     ax.set_title(f"Mot cu nga sau khi chuyen sang tin hieu kieu C1001 ({s['name']})")
-    fig.legend(loc="upper right", fontsize=8)
+    h1, l1 = ax.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, loc="upper left", fontsize=8, framealpha=0.9)
     fig.tight_layout()
     fig.savefig(OUT_DIR / "vi_du_cu_nga.png", dpi=130)
     plt.show()
@@ -755,7 +911,8 @@ print(pd.DataFrame({k: v for k, v in WINDOW_METRICS.items() if v}).T)
 # ## 8. Đánh giá theo SỰ KIỆN, mô phỏng đúng firmware
 # Firmware chạy model mỗi 250 ms và chỉ báo ngã khi **2 cửa sổ liên tiếp** vượt ngưỡng. Ô này dùng đúng
 # luật đó trên dự đoán ngoài-tập:
-# - **mm-ADL**: tỉ lệ cú ngã bắt được (báo trong lúc ngã tới 3 s sau) và số **báo nhầm mỗi giờ** sinh hoạt;
+# - **mm-ADL**: tỉ lệ cú ngã bắt được (báo trong lúc ngã tới 3 s sau) và số **báo nhầm mỗi giờ** sinh hoạt,
+#   kèm bảng *điểm vận hành* theo từng ngưỡng (muốn ít báo nhầm hơn thì đặt `THRESHOLD_OVERRIDE` ở mục 1);
 # - **tự đo**: chấm TP/FP/FN/TN **từng lần thử** cho cả **model** và **thuật toán của chip** để so sánh
 #   (đây là bảng "model của em vs chip" cho chương 4).
 
@@ -778,13 +935,15 @@ def fires(p, th):
 
 SEQ_P = seq_probs()
 EVENT = {}
-
 _pub = [(s, p) for s, p in zip(ALL_SEQS, SEQ_P) if s["domain"] != "own" and p is not None]
-if _pub:
+
+
+def public_events(th):
+    """Cú ngã bắt được + báo nhầm/giờ trên dữ liệu công khai, đúng luật 2 cửa sổ của firmware."""
     caught = total = fa = 0
     neg_windows = 0
     for s, p in _pub:
-        f = fires(p, THRESHOLD)
+        f = fires(p, th)
         labs = s["raw"]["labs"]
         isf = np.array([l == "Falling" for l in labs])
         starts = np.where(isf & ~np.concatenate([[False], isf[:-1]]))[0]
@@ -802,9 +961,22 @@ if _pub:
                 last = j
         neg_windows += int((s["y"] == 0).sum())
     hours = neg_windows * PERIOD_S / 3600
-    EVENT["mm-adl"] = dict(cu_nga=total, bat_duoc=caught, ti_le_bat=round(caught / max(total, 1), 3),
-                           bao_nham=fa, gio_sinh_hoat=round(hours, 2), bao_nham_moi_gio=round(fa / max(hours, 1e-9), 2))
-    print("Cong khai (theo su kien):", EVENT["mm-adl"])
+    return dict(cu_nga=total, bat_duoc=caught, ti_le_bat=round(caught / max(total, 1), 3),
+                bao_nham=fa, gio_sinh_hoat=round(hours, 2), bao_nham_moi_gio=round(fa / max(hours, 1e-9), 1))
+
+
+if _pub:
+    # Bảng điểm vận hành: ngưỡng càng cao càng ít báo nhầm nhưng bỏ sót nhiều hơn
+    OPERATING = pd.DataFrame([dict(nguong=th, **public_events(th)) for th in
+                              sorted({0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, round(THRESHOLD, 2)})])
+    print(OPERATING[["nguong", "bat_duoc", "cu_nga", "ti_le_bat", "bao_nham_moi_gio"]].to_string(index=False))
+    if THRESHOLD_OVERRIDE is not None:
+        THRESHOLD = float(THRESHOLD_OVERRIDE)
+        print(f"Dung nguong tu dat: {THRESHOLD}")
+    EVENT["mm-adl"] = public_events(THRESHOLD)
+    print("Cong khai (theo su kien, nguong xuat ra firmware):", EVENT["mm-adl"])
+elif THRESHOLD_OVERRIDE is not None:
+    THRESHOLD = float(THRESHOLD_OVERRIDE)
 
 
 def confusion(rows, key):

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import EventTable from "@/components/EventTable";
 import { sendAction, useLive } from "@/components/useLive";
+import { Ic } from "@/components/Icon";
 import { hhmmss, heroClass, movementText } from "@/lib/format";
 
 /** Trang kỹ thuật (trước đây là trang chủ): số liệu thô của radar, mạng, thiết bị. */
@@ -366,7 +367,7 @@ export default function KyThuatPage() {
               <div className="okbox" style={{ marginTop: 12, whiteSpace: "pre-wrap" }}>{vitalsAI}</div>
             )}
             <div className="sub" style={{ marginTop: 10 }}>
-              ⚠️ Đây là <b>ước lượng bằng radar</b>, không phải thiết bị y tế. AI chỉ nhận xét
+              <Ic name="warning" size={14} /> Đây là <b>ước lượng bằng radar</b>, không phải thiết bị y tế. AI chỉ nhận xét
               xu hướng, <b>không chẩn đoán bệnh</b>. Cần khai <code>GROQ_API_KEY</code> trong{" "}
               <code>dashboard/.env.local</code> (lấy miễn phí ở console.groq.com/keys).
             </div>

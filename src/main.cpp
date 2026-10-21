@@ -48,6 +48,7 @@
 #include "hal/rf_remote.h"      // nút SOS đeo tay 433 MHz
 #include "net/notifier.h"       // gửi Telegram
 #include "net/web_ui.h"         // máy chủ web + WebSocket
+#include "net/wifi_mgr.h"       // bộ quản lý đa Wi-Fi (NVS + AP cấu hình)
 #include "storage/event_log.h"  // nhật ký sự kiện LittleFS
 
 // ===========================================================================
@@ -98,7 +99,6 @@ uint32_t g_vitalAlertAt  = 0;   ///< lần gửi cảnh báo sinh hiệu gần n
 
 bool g_wifiWasUp   = false;
 bool g_timeSynced  = false;
-uint32_t g_wifiNextTry = 0;
 
 // ===========================================================================
 //  Hàm phụ trợ
@@ -603,25 +603,25 @@ void serviceSay() {
 // ===========================================================================
 //  Wi-Fi và đồng hồ
 // ===========================================================================
+// Khởi động Wi-Fi: giao hẳn cho bộ quản lý đa Wi-Fi (WifiMgr). WifiMgr nạp danh
+// sách mạng từ NVS (seed từ secrets.h nếu NVS rỗng), tự quét + nối mạng mạnh
+// nhất, và tự bật AP cấu hình khi không nối được mạng nào. begin() PHI CHẶN:
+// không chờ sẵn kết nối ở đây — việc nối diễn ra dần trong serviceWifi().
 void startWifi() {
-    WiFi.mode(WIFI_STA);
-    WiFi.setHostname(HOSTNAME);
-    WiFi.setSleep(false);              // tắt tiết kiệm điện cho WebSocket mượt
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("[WIFI] Dang ket noi toi \"%s\"", WIFI_SSID);
-    const uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
-        delay(300);
-        Serial.print(".");
-    }
-    Serial.println();
+    WifiMgr::begin();
 }
 
+// Theo dõi Wi-Fi mỗi vòng loop(). WifiMgr lo phần máy trạng thái (nối lại, bật/
+// tắt AP); hàm này CHỈ giữ các hành vi cũ gắn với lúc CHUYỂN trạng thái lên/
+// xuống: ghi log EV_WIFI_UP/DOWN, đồng bộ NTP lần đầu nối được, bật mDNS.
 void serviceWifi() {
-    const bool up = WiFi.status() == WL_CONNECTED;
+    WifiMgr::loop();
+
+    const bool up = WifiMgr::isConnected();
 
     if (up && !g_wifiWasUp) {
-        Serial.printf("[WIFI] Da ket noi. IP = %s, RSSI = %d dBm\n",
+        Serial.printf("[WIFI] Da ket noi \"%s\". IP = %s, RSSI = %d dBm\n",
+                      WiFi.SSID().c_str(),
                       WiFi.localIP().toString().c_str(), WiFi.RSSI());
         EventLog::add(EV_WIFI_UP, SRC_SYSTEM, g_state, WiFi.localIP().toString().c_str());
         if (!g_timeSynced) {
@@ -632,16 +632,8 @@ void serviceWifi() {
     } else if (!up && g_wifiWasUp) {
         Serial.println("[WIFI] Mat ket noi -> tin canh bao se duoc xep hang doi");
         EventLog::add(EV_WIFI_DOWN, SRC_SYSTEM, g_state, "");
-        g_wifiNextTry = millis() + WIFI_RETRY_INTERVAL_MS;
     }
     g_wifiWasUp = up;
-
-    if (!up && millis() > g_wifiNextTry) {
-        g_wifiNextTry = millis() + WIFI_RETRY_INTERVAL_MS;
-        Serial.println("[WIFI] Thu ket noi lai...");
-        WiFi.disconnect();
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    }
 }
 
 // ===========================================================================
@@ -871,7 +863,21 @@ void setup() {
     Assistant::begin();               // trợ lý hội thoại (tự tắt nếu thiếu server/mic)
     Radar::begin();                   // task riêng, không chặn setup()
 
-    startWifi();
+    startWifi();                      // giao Wi-Fi cho WifiMgr (phi chặn)
+    // Cho WifiMgr ít giây để nối mạng đã lưu TRƯỚC khi gửi tin khởi động, để tin
+    // "đã khởi động" kịp kèm địa chỉ trang giám sát trong trường hợp thường gặp
+    // (có mạng đã lưu đang hiện diện). Không nối được thì cũng không chờ lâu:
+    // WifiMgr sẽ tiếp tục thử (và bật AP cấu hình) trong loop().
+    {
+        const uint32_t t0 = millis();
+        Serial.print("[WIFI] Dang quet va noi mang da luu");
+        while (!WifiMgr::isConnected() && millis() - t0 < 15000) {
+            serviceWifi();
+            delay(200);
+            Serial.print(".");
+        }
+        Serial.println();
+    }
     serviceWifi();
     Notifier::onFamilyMessage(buildFamilyReply);   // bật chat hai chiều với người nhà
     Notifier::begin();

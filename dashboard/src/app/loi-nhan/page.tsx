@@ -4,6 +4,7 @@
    trên Telegram), kèm nhật ký mọi lượt người nhà hỏi thăm qua Telegram và web. */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CHANNEL_LABEL, SPEAK_LABEL, capFirst, dayVN, hm, withoutCommand } from "@/components/labels";
+import { Ic } from "@/components/Icon";
 import type { Interaction, SpeakStatus, TelegramBotInfo } from "@/lib/types";
 
 type ListRes = { items: Interaction[]; bot: TelegramBotInfo };
@@ -141,7 +142,7 @@ export default function LoiNhanPage() {
               {busy === "preview" ? "Đang soạn…" : "Xem trước câu loa đọc"}
             </button>
             <button className="b-main" onClick={() => void post(false)} disabled={!text.trim() || busy !== null}>
-              {busy === "send" ? "Đang gửi xuống loa…" : "🔊 Gửi xuống loa"}
+              {busy === "send" ? "Đang gửi xuống loa…" : <><Ic name="speaker" size={15} /> Gửi xuống loa</>}
             </button>
           </div>
           {preview && (
@@ -154,7 +155,7 @@ export default function LoiNhanPage() {
                 style={{ marginTop: 8 }}
                 onClick={() => void new Audio(`/api/tts?text=${encodeURIComponent(preview)}`).play().catch(() => undefined)}
               >
-                ▶ Nghe thử trên máy tính
+<Ic name="play" size={14} /> Nghe thử trên máy tính
               </button>
             </div>
           )}
@@ -216,13 +217,13 @@ export default function LoiNhanPage() {
                   <span className="st-pill navy">{CHANNEL_LABEL[m.channel]}</span>
                   <b>{m.from}</b> · {hm(m.at)}
                   {m.speak && <span className={`st-pill ${SPEAK_LABEL[m.speak].tone}`}>{SPEAK_LABEL[m.speak].text}</span>}
-                  {m.kind === "hoitham" && <span className="st-pill navy">🔊 Lời nhắn qua loa</span>}
+                  {m.kind === "hoitham" && <span className="st-pill navy"><Ic name="speaker" size={13} /> Lời nhắn qua loa</span>}
                   {m.kind === "tu-choi" && <span className="st-pill bad">Chat chưa được phép · {m.chatId}</span>}
                   {m.ai && <span className="st-pill">AI</span>}
                 </div>
                 <div className="msg-said">{m.kind === "hoitham" ? withoutCommand(m.text) : m.text}</div>
-                {m.spokenText && <div className="msg-said spoken">🔊 {m.spokenText}</div>}
-                {!m.spokenText && m.kind !== "tu-choi" && <div className="reply-text">↳ {m.reply}</div>}
+                {m.spokenText && <div className="msg-said spoken"><Ic name="speaker" size={14} /> {m.spokenText}</div>}
+                {!m.spokenText && m.kind !== "tu-choi" && <div className="reply-text"><Ic name="reply" size={14} /> {m.reply}</div>}
               </div>
             ))}
           </div>

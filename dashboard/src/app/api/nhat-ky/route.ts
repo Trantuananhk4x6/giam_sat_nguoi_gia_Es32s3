@@ -26,7 +26,7 @@ export async function GET(req: Request) {
     const f = friendlyEvent(e, call);
     if (f) items.push(f);
     else if (all) {
-      items.push({ key: e.key, at: e.recvAt, time: timeVN(e.recvAt), icon: "⚙️", text: `${e.label}${e.note ? ` (${e.note})` : ""}`, tone: "muted", type: e.type });
+      items.push({ key: e.key, at: e.recvAt, time: timeVN(e.recvAt), icon: "gear", text: `${e.label}${e.note ? ` (${e.note})` : ""}`, tone: "muted", type: e.type });
     }
   }
   return NextResponse.json({ call, days, items });

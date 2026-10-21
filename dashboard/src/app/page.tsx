@@ -7,16 +7,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { LEVEL_LABEL, SPEAK_LABEL, ago, capFirst, hm, withoutCommand } from "@/components/labels";
 import { sendAction } from "@/components/useLive";
+import { Ic, IcKey, type IconName } from "@/components/Icon";
 import type { Overview } from "@/lib/health";
 
 type OverviewRes = Overview & { series: { t: number; range: number; present: number }[] };
 type Comment = { text: string; ai: boolean; at: number; level: string };
 
-const HERO_ICON: Record<string, string> = {
-  "binh-thuong": "🏡",
-  "chu-y": "⚠️",
-  "khan-cap": "🚨",
-  "khong-ro": "📡",
+const HERO_ICON: Record<string, IconName> = {
+  "binh-thuong": "home",
+  "chu-y": "warning",
+  "khan-cap": "emergency",
+  "khong-ro": "radar",
 };
 
 function activityWord(v: number | null): string {
@@ -110,7 +111,7 @@ export default function TongQuanPage() {
 
       <section className={`hero2 lv-${level}`} aria-live="polite">
         <div className="hero2-main">
-          <div className="avatar" aria-hidden>{HERO_ICON[level]}</div>
+          <div className="avatar" aria-hidden><Ic name={HERO_ICON[level] ?? "radar"} size={30} /></div>
           <div>
             <div className="eyebrow">
               {o ? `${o.name}${o.place ? ` · ${o.place}` : ""}` : "Đang tải…"}
@@ -140,8 +141,8 @@ export default function TongQuanPage() {
             </button>
           ) : (
             <div className="btns">
-              <Link className="btn-link solid" href="/loi-nhan">🔊 Gửi lời nhắn qua loa</Link>
-              <Link className="btn-link" href="/tro-chuyen">💬 Hỏi trợ lý</Link>
+              <Link className="btn-link solid" href="/loi-nhan"><Ic name="speaker" size={16} /> Gửi lời nhắn qua loa</Link>
+              <Link className="btn-link" href="/tro-chuyen"><Ic name="chat" size={16} /> Hỏi trợ lý</Link>
             </div>
           )}
         </div>
@@ -149,22 +150,22 @@ export default function TongQuanPage() {
 
       <div className="tiles">
         <div className="tile">
-          <span className="ic" aria-hidden>🚪</span>
+          <span className="ic" aria-hidden><Ic name="door" size={22} /></span>
           <b>{o?.today.roomVisits ?? "—"}</b>
           <em>Lần vào phòng hôm nay</em>
         </div>
         <div className={`tile${(o?.today.suspects ?? 0) > 0 ? " warn" : ""}`}>
-          <span className="ic" aria-hidden>⚠️</span>
+          <span className="ic" aria-hidden><Ic name="warning" size={22} /></span>
           <b>{o ? (o.today.suspects || "Không") : "—"}</b>
           <em>Lần nghi ngã</em>
         </div>
         <div className={`tile${(o?.today.emergencies ?? 0) + (o?.today.sos ?? 0) > 0 ? " bad" : ""}`}>
-          <span className="ic" aria-hidden>🆘</span>
+          <span className="ic" aria-hidden><Ic name="sos" size={22} /></span>
           <b>{o ? (o.today.emergencies + o.today.sos || "Không") : "—"}</b>
           <em>Cảnh báo / bấm SOS</em>
         </div>
         <div className="tile">
-          <span className="ic" aria-hidden>🔊</span>
+          <span className="ic" aria-hidden><Ic name="speaker" size={22} /></span>
           <b>{o?.today.messages ?? "—"}</b>
           <em>Lời nhắn đã gửi qua loa</em>
         </div>
@@ -174,7 +175,7 @@ export default function TongQuanPage() {
         <div className="stack">
           <div className="card ai-card">
             <div className="card-head">
-              <span className="ai-badge">✦ Trợ lý AI nhận xét</span>
+              <span className="ai-badge"><Ic name="sparkle" size={15} /> Trợ lý AI nhận xét</span>
               <button className="b-gray small" onClick={() => void loadComment(true)} disabled={cBusy}>
                 {cBusy ? "Đang viết…" : "Làm mới"}
               </button>
@@ -246,11 +247,11 @@ export default function TongQuanPage() {
           <div className="card">
             <div className="card-head">
               <h2>Hôm nay của {call}</h2>
-              <Link href="/nhat-ky" className="sub">Xem tất cả →</Link>
+              <Link href="/nhat-ky" className="sub">Xem tất cả <Ic name="arrow-right" size={14} /></Link>
             </div>
             {o && o.timeline.length === 0 ? (
               <div className="empty">
-                <span className="big" aria-hidden>🌤️</span>
+                <span className="big" aria-hidden><Ic name="calm" size={30} /></span>
                 Chưa có diễn biến nào hôm nay.
               </div>
             ) : (
@@ -258,7 +259,7 @@ export default function TongQuanPage() {
                 {(o?.timeline ?? []).slice(0, 12).map((e) => (
                   <li key={e.key} className={`tl tone-${e.tone}`}>
                     <span className="tl-time">{e.time}</span>
-                    <span className="tl-ic" aria-hidden>{e.icon}</span>
+                    <span className="tl-ic" aria-hidden><IcKey name={e.icon} size={18} /></span>
                     <span className="tl-text">{e.text}</span>
                   </li>
                 ))}
@@ -269,7 +270,7 @@ export default function TongQuanPage() {
           <div className="card">
             <div className="card-head">
               <h2>Lời nhắn gần đây</h2>
-              <Link href="/loi-nhan" className="sub">Gửi lời nhắn →</Link>
+              <Link href="/loi-nhan" className="sub">Gửi lời nhắn <Ic name="arrow-right" size={14} /></Link>
             </div>
             {o && o.recentMessages.length === 0 ? (
               <div className="empty">

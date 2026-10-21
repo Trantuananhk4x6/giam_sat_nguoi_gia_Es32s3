@@ -168,6 +168,25 @@ constexpr size_t   QUEUE_MAX_ITEMS  = 20;          // số tin chờ gửi tối
 constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;  // thử kết nối lại mỗi 10s
 constexpr uint32_t TELEGRAM_RETRY_MS      = 15000;  // thử gửi lại tin trong hàng đợi
 
+// ----------------------- BỘ QUẢN LÝ ĐA WI-FI --------------------------------
+// Thiết bị lưu NHIỀU mạng Wi-Fi trong bộ nhớ bền (NVS) và tự nối mạng mạnh nhất
+// đang có. Khi không nối được mạng nào đã lưu trong CONFIG_PORTAL_AFTER_MS thì
+// thiết bị TỰ bật AP (phát Wi-Fi riêng) + trang cấu hình để nhập/chọn mạng mới
+// tại chỗ — không phải nạp lại firmware, không phải sửa secrets.h.
+//
+// WIFI_SSID/WIFI_PASSWORD trong secrets.h giờ CHỈ là mạng "mồi" seed vào NVS ở
+// lần chạy đầu (để tương thích ngược). Thêm/bớt mạng khác qua trang web.
+
+// Số mạng Wi-Fi tối đa lưu được trong NVS.
+constexpr size_t   WIFI_MAX_SAVED         = 8;
+
+// Thử hết danh sách bao lâu mà vẫn không nối được thì bật AP cấu hình (ms).
+constexpr uint32_t CONFIG_PORTAL_AFTER_MS = 25000;   // 25 giây
+
+// Mật khẩu của AP cấu hình. ĐỔI khi triển khai thật (phải >= 8 ký tự theo chuẩn
+// WPA2). Người dùng gõ mật khẩu này khi kết nối vào Wi-Fi do thiết bị phát ra.
+#define AP_PASSWORD   "12345678"
+
 // Chu kỳ hỏi tin nhắn mới từ người nhà qua Telegram (ms). Để 0 thì TẮT hẳn tính
 // năng chat hai chiều (chỉ gửi cảnh báo đi, không nhận hỏi đáp).
 constexpr uint32_t TELEGRAM_POLL_MS       = 4000;

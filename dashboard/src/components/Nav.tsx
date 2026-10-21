@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Menu, X } from "lucide-react";
 
 type Item = { href: string; label: string; hint?: string };
 type Entry = Item | { label: string; items: Item[] };
@@ -23,6 +24,7 @@ const MENU: Entry[] = [
     label: "Kỹ thuật",
     items: [
       { href: "/ky-thuat", label: "Giám sát thiết bị", hint: "Số liệu radar, mạng, công cụ thử" },
+      { href: "/wifi", label: "Wi-Fi thiết bị", hint: "Quét, lưu, đổi mạng Wi-Fi của thiết bị" },
       { href: "/thuc-nghiem", label: "Đo thực nghiệm", hint: "Chấm TP/FP/FN/TN từng lần thử" },
       { href: "/bao-cao", label: "Báo cáo & biểu đồ", hint: "Precision, Recall, F1, model AI" },
     ],
@@ -32,7 +34,7 @@ const MENU: Entry[] = [
 
 /** Biểu tượng OALPHA cắt từ logo gốc (image.png), nền trong suốt. Chữ OALPHA đứng cạnh nên alt để trống. */
 function Logo() {
-  return <Image src="/logo-mark.png" alt="" width={30} height={30} priority />;
+  return <Image src="/logo-mark.png" alt="" width={30} height={30} preload />;
 }
 
 function Group({ label, items, path, open, onToggle }: {
@@ -69,26 +71,36 @@ function Group({ label, items, path, open, onToggle }: {
 export default function Nav() {
   const path = usePathname();
   const [open, setOpen] = useState<string | null>(null);
+  // Menu dang (mobile): dong/mo bang nut hamburger.
+  const [mobileOpen, setMobileOpen] = useState(false);
   const ref = useRef<HTMLElement | null>(null);
 
-  // Đóng sub-menu khi chuyển trang, bấm ra ngoài hoặc nhấn Esc
-  useEffect(() => setOpen(null), [path]);
+  // Đóng sub-menu + menu mobile khi chuyển trang
   useEffect(() => {
-    if (!open) return;
+    setOpen(null);
+    setMobileOpen(false);
+  }, [path]);
+  useEffect(() => {
+    if (!open && !mobileOpen) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(null);
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(null);
+        setMobileOpen(false);
+      }
     };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setOpen(null); setMobileOpen(false); }
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, mobileOpen]);
 
   return (
-    <nav className="nav" ref={ref} aria-label="Điều hướng chính">
+    <nav className={`nav${mobileOpen ? " mobile-open" : ""}`} ref={ref} aria-label="Điều hướng chính">
       <Link href="/" className="brand">
         <span className="logo"><Logo /></span>
         <span>
@@ -97,22 +109,35 @@ export default function Nav() {
         </span>
       </Link>
       <span className="spacer" />
-      {MENU.map((e) =>
-        "items" in e ? (
-          <Group
-            key={e.label}
-            label={e.label}
-            items={e.items}
-            path={path}
-            open={open === e.label}
-            onToggle={(v) => setOpen(v ? e.label : null)}
-          />
-        ) : (
-          <Link key={e.href} href={e.href} className={path === e.href ? "on" : ""}>
-            {e.label}
-          </Link>
-        ),
-      )}
+      {/* Nut hamburger - chi hien tren mobile (CSS) */}
+      <button
+        type="button"
+        className="nav-burger"
+        aria-label={mobileOpen ? "Đóng menu" : "Mở menu"}
+        aria-expanded={mobileOpen}
+        onClick={() => { setMobileOpen((v) => !v); setOpen(null); }}
+      >
+        {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+      </button>
+      {/* Bo cac muc dieu huong vao mot khoi de an/hien goi gon tren mobile */}
+      <div className="nav-items">
+        {MENU.map((e) =>
+          "items" in e ? (
+            <Group
+              key={e.label}
+              label={e.label}
+              items={e.items}
+              path={path}
+              open={open === e.label}
+              onToggle={(v) => setOpen(v ? e.label : null)}
+            />
+          ) : (
+            <Link key={e.href} href={e.href} className={path === e.href ? "on" : ""}>
+              {e.label}
+            </Link>
+          ),
+        )}
+      </div>
     </nav>
   );
 }

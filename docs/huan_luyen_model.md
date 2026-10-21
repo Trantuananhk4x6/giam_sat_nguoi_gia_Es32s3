@@ -1,168 +1,110 @@
 # Hướng dẫn huấn luyện model phát hiện té ngã
 
-Tài liệu này trả lời hai câu: **lấy dataset ở đâu** và **các bước train thế nào**.
+Model là bộ phân loại **hồi quy logistic 10 đặc trưng** chạy ngay trên ESP32
+(`src/core/fall_model.*`). Huấn luyện bằng notebook
+**`tools/kaggle/huan_luyen_model_te_nga.ipynb`** (chạy trên Kaggle, CPU là đủ),
+kết quả là file `include/model_weights.h` để nạp vào firmware. File `.py` cùng thư
+mục có nội dung y hệt, chạy trên máy bằng `python huan_luyen_model_te_nga.py`.
 
 ---
 
-## 1. Điều quan trọng nhất phải hiểu trước
+## 1. Lấy dữ liệu ở đâu (xếp theo độ sát với dự án)
 
-Model trong đồ án này **huấn luyện trên dữ liệu do CHÍNH thiết bị của bạn thu**,
-không phải trên dataset tải từ mạng. Lý do:
-
-- Model học từ **10 đặc trưng** rút ra từ tín hiệu UART của radar DFRobot C1001:
-  biên độ chuyển động (`range`), kiểu chuyển động (`movement`), khoảng cách
-  (`distanceCm`), cờ nằm im (`staticStay`)… (xem `src/core/fall_model.h` và
-  `dashboard/src/lib/features.ts`).
-- Các dataset té ngã công khai trên mạng dùng **cảm biến khác** (đồng hồ đeo tay,
-  camera, hoặc radar point-cloud thô). Định dạng và ý nghĩa số liệu **khác hoàn
-  toàn** với 10 đặc trưng ở trên, nên **không nạp thẳng vào pipeline này được**.
-
-👉 **Kết luận:** để có model chạy trên ESP32, bạn **phải tự đo dữ liệu bằng radar
-C1001 + dashboard**. Đây cũng chính là điểm mạnh khi bảo vệ: "model do em tự huấn
-luyện trên dữ liệu em tự đo", chứ không phải lấy sẵn của người khác.
-
-Vậy dataset ngoài dùng để làm gì? → Mục 2.
-
----
-
-## 2. Dataset công khai — dùng để THAM KHẢO trong báo cáo
-
-Không nạp vào firmware được, nhưng **rất đáng trích trong chương cơ sở lý thuyết
-và phần so sánh** của báo cáo (cho thấy bạn có khảo sát tài liệu). Nguồn uy tín:
-
-| Dataset | Cảm biến | Dùng để làm gì trong báo cáo | Link |
+| # | Nguồn | Vì sao | Lấy ở đâu |
 |---|---|---|---|
-| **mm-ADL** | Radar mmWave (point cloud) | Gần đề tài nhất — dataset radar sóng mm cho sinh hoạt thường ngày + té ngã. Trích để nói "đã có dataset radar mmWave công khai" | [github.com/OwenHan10/mm-ADL](https://github.com/OwenHan10/mm-ADL) |
-| **SisFall** | Gia tốc kế đeo người | Dataset té ngã kinh điển, 23 người trẻ + 15 người trên 60 tuổi, 15 kiểu ngã + 19 sinh hoạt. Trích để mô tả các **kiểu ngã** cần thử | [sistemic.udea.edu.co](http://sistemic.udea.edu.co/en/investigacion/proyectos/english-falls/) |
-| **UR Fall Detection (URFD)** | Camera + gia tốc kế | Hay dùng để đối chiếu, có nhãn ngã/không ngã rõ ràng | Tìm "UR Fall Detection Dataset" (ĐH Rzeszów) |
-| **mmFall (bài báo)** | Radar mmWave 4D | Bài báo nền tảng về phát hiện ngã bằng radar + autoencoder, trích cho phần phương pháp | [arxiv.org/abs/2003.02386](https://arxiv.org/abs/2003.02386) |
+| 1 | **Tự đo bằng chính C1001** | Cùng cảm biến, cùng lắp trần 2,7 m, cùng 10 đặc trưng. **Bắt buộc**, số liệu báo cáo lấy ở đây | Dashboard → *Kỹ thuật › Báo cáo & biểu đồ* → **Tải dữ liệu huấn luyện (Kaggle)** → file `oalpha_du_lieu_huan_luyen.json` |
+| 2 | **mm-ADL** (214 MB, CC BY 4.0) | Radar 60 GHz TI IWR6843 cùng dải tần C1001; 11 người, ~50 cú ngã mỗi người, kèm ngồi ghế, nằm giường (ca dễ nhầm) | [doi.org/10.5281/zenodo.22405011](https://doi.org/10.5281/zenodo.22405011) · [GitHub](https://github.com/OwenHan10/mm-ADL) |
+| 3 | **mm-ADL-Home** (134 MB, CC BY 4.0) | Cùng radar, quay trong căn hộ có đồ đạc, ghi liên tục: dùng làm dữ liệu gần thực tế | [doi.org/10.5281/zenodo.23456178](https://doi.org/10.5281/zenodo.23456178) · [GitHub](https://github.com/OwenHan10/mm-ADL-Home) |
 
-Nội dung bảng được tóm tắt lại từ mô tả gốc của các dataset (đã diễn giải để tuân
-thủ bản quyền). Khi trích vào báo cáo, dẫn lại đúng link gốc ở trên.
+**Vì sao dataset công khai không nạp thẳng được:** C1001 không xuất point cloud,
+chỉ xuất giá trị mức cao (có người, kiểu chuyển động, biên độ 0–100, khoảng cách).
+Notebook **chuyển** point cloud của mm-ADL sang các giá trị đó bằng một "radar ảo
+gắn trần 2,7 m, nón quét 100°" (mục 5 trong notebook). Đây là phép **xấp xỉ**:
+biên độ chuyển động của C1001 là thuật toán đóng của hãng. Vì vậy:
 
-> **Cách dùng trong báo cáo (gợi ý câu chữ):**
-> "Qua khảo sát, các dataset té ngã công khai chủ yếu dựa trên cảm biến đeo
-> (SisFall) hoặc camera (URFD); dataset radar sóng milimet (mm-ADL, mmFall) tuy
-> gần với đề tài nhưng dùng dữ liệu point-cloud thô, khác với dữ liệu đặc trưng
-> mức cao mà mô-đun C1001 cung cấp qua UART. Do đó đề tài **tự xây dựng tập dữ
-> liệu** bằng chính thiết bị, gồm N lần thử trên M kịch bản (bảng 4.x)."
+- dữ liệu tự đo có trọng số gấp 3 (`W_OWN`) và được dùng để chọn ngưỡng;
+- khi có ≥ 400 mẫu sinh hoạt tự đo, notebook tự khớp thang biên độ mm-ADL về đúng
+  phân bố của C1001 (quantile mapping);
+- **chỉ số đưa vào báo cáo là chỉ số trên dữ liệu tự đo**, mm-ADL chỉ dùng để nói
+  "model đã được kiểm tra trên 11 người lạ".
 
----
-
-## 3. Tự đo dataset bằng thiết bị — các bước
-
-### 3.1. Chuẩn bị
-1. Nạp firmware và nạp giao diện web:
-   ```bat
-   pio run -t upload
-   pio run -t uploadfs
-   ```
-2. Chạy dashboard trên laptop (cùng mạng Wi-Fi với ESP32):
-   ```bat
-   cd dashboard
-   npm install
-   npm run dev
-   ```
-3. Mở dashboard (mặc định `http://localhost:3000`), vào phần **Cài đặt**, điền
-   địa chỉ IP của ESP32 (xem trên trang giám sát của thiết bị). Dashboard sẽ tự
-   kéo chuỗi đặc trưng từ `GET /api/features` của firmware.
-
-### 3.2. Đo theo kịch bản
-Vào trang **Thực nghiệm** của dashboard. Các kịch bản đã cài sẵn đúng theo bản
-kế hoạch (`dashboard/src/lib/scenarios.ts`):
-
-| Nhóm | Kịch bản | Số lần nên đo |
-|---|---|---|
-| Không ngã | Không có người; đi lại/ngồi ghế | 20 mỗi loại |
-| **Ngã thật** | Ngã về trước; ngã ngang; ngã ngồi bệt | **30 mỗi loại** |
-| Dễ nhầm | Cúi nhặt đồ; ngồi xuống sàn nhanh; nằm xuống thảm | 20 mỗi loại |
-| Quy trình | Ngã rồi bấm "Tôi ổn"; bấm SOS; ngã không phản hồi | 20 mỗi loại |
-
-Với mỗi lần thử:
-1. Bấm **Bắt đầu lần thử**, chọn đúng kịch bản.
-2. Thực hiện động tác (ngã lên **thảm tập dày** cho an toàn — cần làm hàng trăm lần).
-3. Bấm **Kết thúc lần thử**.
-
-Dashboard tự gắn mốc thời gian lần thử với chuỗi đặc trưng, và tự suy ra "lúc ngã
-thật" bằng cách lùi lại `RADAR_FALL_TIME_S` giây so với lúc radar báo (logic này
-nằm ở `buildDataset()` trong `dashboard/src/lib/train.ts`).
-
-> ⚠️ **Để dashboard luôn chạy trong suốt lúc đo** — nó phải thu đặc trưng liên
-> tục. Mỗi lần thử cần tối thiểu ~3 giây dữ liệu (12 mẫu × 250 ms) nếu không sẽ
-> bị bỏ.
-
-### 3.3. Mẹo để dataset "sạch" và model đáng tin
-- **Đủ số lần ngã:** cần ≥ 20–30 cửa sổ "có ngã", ít hơn thì model không đáng tin
-  (dashboard sẽ cảnh báo).
-- **Đổi tư thế/hướng:** ngã nhiều hướng, nhiều vị trí trong phòng để model không
-  học vẹt một kiểu.
-- **Đo cả ca "dễ nhầm":** cúi nhặt đồ, ngồi bệt… — đây là thứ tạo ra FP, đo nhiều
-  thì model học cách phân biệt.
-- Đo ở **2 độ cao lắp** hoặc **2 mức độ nhạy** để báo cáo có số liệu so sánh.
+Dataset khác (SisFall, UR Fall, mmFall…) dùng gia tốc kế, camera hoặc radar 77 GHz
+gắn tường: chỉ nên trích ở chương tổng quan, không dùng để train.
 
 ---
 
-## 4. Huấn luyện — các bước bấm nút
+## 2. Tự đo dữ liệu bằng thiết bị
 
-Chạy bộ huấn luyện (hồi quy logistic) trong `dashboard/src/lib/train.ts` trên dữ liệu đã đo. Bộ train sẽ:
+1. Nạp firmware (`pio run -t upload`, `pio run -t uploadfs`), chạy dashboard
+   (`cd dashboard && npm run dev`), nhập IP của ESP32 ở trang **Cài đặt**.
+2. Trang **Kỹ thuật › Đo thực nghiệm**: tạo phiên đo, mỗi lần thử bấm *Bắt đầu*,
+   làm động tác (ngã lên **thảm dày**), bấm *Kết thúc*. Kịch bản có sẵn theo bản kế
+   hoạch: không người, đi lại, 3 kiểu ngã (30 lần mỗi kiểu), 3 ca dễ nhầm, ngã rồi
+   bấm "Tôi ổn", bấm SOS, ngã không phản hồi.
+3. **Để dashboard chạy suốt lúc đo**: nó thu chuỗi đặc trưng 4 mẫu/giây từ
+   `/api/features`. Lần thử thiếu 3 giây dữ liệu sẽ bị bỏ.
 
-1. **Bấm "Huấn luyện".** Dashboard sẽ:
-   - Cắt chuỗi đặc trưng thành các **cửa sổ trượt** 3 giây.
-   - Gán nhãn (1 = có ngã, 0 = không ngã) theo kịch bản của từng lần thử.
-   - **Chia train/test theo LẦN THỬ** (không theo cửa sổ) để tránh rò rỉ dữ liệu.
-   - Chạy **hồi quy logistic** có cân trọng số theo lớp + chuẩn hóa L2.
-   - Tự dò **ngưỡng** cho F1 cao nhất.
-   (Toàn bộ logic ở `dashboard/src/lib/train.ts`.)
+Mẹo cho dữ liệu sạch: ngã nhiều hướng, nhiều vị trí dưới radar; đo kỹ các ca dễ
+nhầm (đây là nguồn báo nhầm); đo ở 2 độ cao lắp hoặc 2 độ nhạy để có bảng so sánh.
 
-2. **Đọc số liệu kết quả.** Chỉ quan tâm số liệu trên **tập TEST** (train luôn đẹp
-   hơn, không dùng để báo cáo):
-   - **Precision** (độ chính xác) = TP/(TP+FP) — báo nhầm ít hay nhiều.
-   - **Recall / Độ nhạy** = TP/(TP+FN) — bỏ sót ngã ít hay nhiều. **Quan trọng
-     nhất** với hệ thống an toàn.
-   - **F1** = trung bình điều hòa của hai cái trên.
+---
 
-3. **Bấm "Tải model_weights.h".** File tải về chứa trọng số + ngưỡng + `FALL_MODEL_TRAINED 1`.
+## 3. Huấn luyện trên Kaggle
 
-4. **Ghi đè** `include/model_weights.h` bằng file vừa tải.
+1. Dashboard → **Tải dữ liệu huấn luyện (Kaggle)**.
+2. Kaggle → *Create → New Dataset* → upload file JSON vừa tải (để *Private*).
+   Thêm mm-ADL: *New Dataset* → tab *Link* → dán
+   `https://zenodo.org/records/22405011/files/mm-adl-v1.0.zip?download=1`
+   (làm tương tự với mm-ADL-Home). Hoặc bỏ qua bước này và bật
+   *Settings → Internet: On*: notebook tự tải từ Zenodo, có kiểm tra MD5.
+3. Kaggle → *Create → New Notebook* → *File → Import Notebook* → chọn
+   `tools/kaggle/huan_luyen_model_te_nga.ipynb` → *Add Data* các dataset ở bước 2
+   → **Run All** (khoảng 1–2 phút trên CPU).
+4. Tab *Output*: tải `model_weights.h` (kèm `model_report.json` và 2 ảnh `.png`
+   cho báo cáo) → chép đè `include/model_weights.h` → `pio run -t upload`.
+   Serial phải in `[MODEL] Da nap model: kaggle ...`.
 
-5. **Nạp lại firmware:**
-   ```bat
-   pio run -t upload
-   ```
-   Lúc khởi động, firmware in ra serial: `[MODEL] Da nap model: ...`. Trên trang
-   giám sát, mục model sẽ hiện trạng thái đã huấn luyện.
+Notebook làm gì, theo thứ tự: tự kiểm tra hợp đồng đặc trưng khớp bản C++ → gán
+nhãn cửa sổ 3 giây (giống `buildDataset()` của dashboard) → chuyển mm-ADL → đánh
+giá chéo **theo người / theo lần thử** (không rò rỉ dữ liệu) → chọn `C` và ngưỡng
+→ mô phỏng đúng luật "2 cửa sổ liên tiếp" của firmware → bảng **model vs chip** →
+xuất `model_weights.h` rồi đọc lại, tính bằng float32 như ESP32 để đối chiếu.
+
+---
+
+## 4. Đọc kết quả cho đúng
+
+- **Bảng "Model vs chip" (mục 8)** là bảng chính cho chương 4: TP/FP/FN/TN từng lần
+  thử của model và của thuật toán có sẵn trong chip, trên cùng dữ liệu.
+- **Bảng điểm vận hành**: mỗi ngưỡng cho bao nhiêu % cú ngã bắt được và bao nhiêu
+  lần báo nhầm mỗi giờ. Muốn ít báo nhầm hơn thì đặt `THRESHOLD_OVERRIDE` ở mục 1.
+- Chạy thử chỉ với mm-ADL (chưa có dữ liệu tự đo): bắt được khoảng 75% cú ngã nhưng
+  báo nhầm hơn 100 lần/giờ. Lý do là 10 đặc trưng tổng hợp này còn thô so với point
+  cloud mà chip dùng bên trong. Đây là một kết luận nên nêu thẳng trong báo cáo.
 
 ---
 
 ## 5. Model dùng để làm gì trong hệ thống
 
-Hiện tại kết quả model (`modelFall`, `modelProb`) được **tính và hiển thị song
-song** với thuật toán có sẵn trong chip radar, nhưng **không** trực tiếp kích hoạt
-cảnh báo (máy trạng thái vẫn dựa vào cờ ngã của chip — xem `stateMachineTick()`
-trong `src/main.cpp`).
+Kết quả model (`modelFall`, `modelProb`) được **tính và hiển thị song song** với
+thuật toán của chip, nhưng **không** kích hoạt cảnh báo (máy trạng thái vẫn dựa vào
+cờ ngã của chip, xem `stateMachineTick()` trong `src/main.cpp`). Lựa chọn có chủ
+đích: so sánh "model của em" với "thuật toán có sẵn trong chip" trên cùng dữ liệu,
+và hồi quy logistic giải thích được (mỗi trọng số cho biết đặc trưng nào đẩy quyết
+định theo hướng nào; notebook vẽ sẵn biểu đồ trọng số).
 
-Đây là **lựa chọn có chủ đích** và là nội dung hay cho báo cáo:
-- Chương so sánh: "**model của em** vs **thuật toán có sẵn trong chip**" — chạy
-  cùng lúc trên cùng dữ liệu, so Precision/Recall/F1.
-- Giải thích được: mỗi trọng số cho biết đặc trưng nào quan trọng tới đâu (hồi
-  quy logistic minh bạch, không phải hộp đen).
-
-Nếu GVHD muốn model **trực tiếp tham gia quyết định cảnh báo** (ví dụ: chỉ báo
-khi **cả** chip radar **và** model cùng đồng ý, để giảm báo nhầm), thì đó là một
-thay đổi nhỏ trong `stateMachineTick()` — trao đổi với GVHD trước khi chốt, rồi
-mình bổ sung sau.
+Nếu GVHD muốn model tham gia quyết định (ví dụ chỉ báo khi chip **và** model cùng
+đồng ý, để giảm báo nhầm), đó là thay đổi nhỏ trong `stateMachineTick()`, nên trao
+đổi trước khi chốt.
 
 ---
 
 ## 6. Trả lời câu hỏi "AI nằm ở đâu?" khi bảo vệ
 
-Hội đồng rất có thể hỏi. Chuẩn bị sẵn:
-
-1. Phần nhận dạng tư thế từ đám mây điểm (point cloud) chạy **trong chip radar**
-   (thuật toán của DFRobot) — đây là "AI có sẵn".
-2. Phần **AI do em tự làm**: bộ phân loại **hồi quy logistic** huấn luyện trên
-   tập dữ liệu em tự đo bằng chính thiết bị, chạy ngay trên ESP32, và em **so
-   sánh định lượng** nó với thuật toán của chip (bảng Precision/Recall/F1).
-3. Nói rõ: **cố ý không** đưa cờ ngã của chip vào đặc trưng của model — nếu đưa
-   vào thì model chỉ sao chép kết quả của chip, con số đẹp sẽ vô nghĩa. (Đây là
-   điểm thể hiện mình hiểu rõ phương pháp, dễ ghi điểm.)
+1. Nhận dạng tư thế từ point cloud chạy **trong chip radar** (thuật toán của
+   DFRobot): "AI có sẵn".
+2. **AI do em tự làm**: hồi quy logistic huấn luyện trên dữ liệu em tự đo (bổ sung
+   dữ liệu công khai mm-ADL đã chuyển đổi), chạy ngay trên ESP32, so sánh định lượng
+   với chip.
+3. **Cố ý không** đưa cờ ngã của chip vào đặc trưng: đưa vào thì model chỉ chép lại
+   kết quả của chip, con số đẹp sẽ vô nghĩa.

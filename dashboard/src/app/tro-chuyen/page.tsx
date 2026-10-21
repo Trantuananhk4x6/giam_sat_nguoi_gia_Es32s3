@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SPEAK_LABEL, capFirst } from "@/components/labels";
+import { Ic } from "@/components/Icon";
 import type { SpeakStatus } from "@/lib/types";
 
 type Msg = {
@@ -172,21 +173,21 @@ export default function TroChuyenPage() {
         <div className="chat-list" ref={listRef} aria-live="polite">
           {messages.length === 0 && (
             <div className="chat-hello">
-              <div className="chat-hello-ic" aria-hidden>✦</div>
+              <div className="chat-hello-ic" aria-hidden><Ic name="sparkle" size={26} strokeWidth={2.25} /></div>
               <b>Xin chào, em là trợ lý OALPHA.</b>
               <p>Anh/chị muốn biết gì về {call} hôm nay? Chọn một câu gợi ý bên dưới hoặc tự gõ câu hỏi.</p>
             </div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={`bubble-row ${m.role}`}>
-              {m.role === "assistant" && <span className="bubble-ava" aria-hidden>✦</span>}
+              {m.role === "assistant" && <span className="bubble-ava" aria-hidden><Ic name="sparkle" size={16} strokeWidth={2.25} /></span>}
               <div className={`bubble ${m.role}`}>
                 {m.content}
                 {m.role === "assistant" && (
                   <div className="bubble-meta">
                     {m.speak && <span className={`st-pill ${SPEAK_LABEL[m.speak].tone}`}>{SPEAK_LABEL[m.speak].text}</span>}
                     <span>{m.ai ? "AI · dữ liệu radar" : "Tự động"}</span>
-                    <button type="button" className="linkish" onClick={() => speak(m.content)}>🔊 Nghe</button>
+                    <button type="button" className="linkish" onClick={() => speak(m.content)}><Ic name="speaker" size={14} /> Nghe</button>
                   </div>
                 )}
               </div>
@@ -194,7 +195,7 @@ export default function TroChuyenPage() {
           ))}
           {sending && (
             <div className="bubble-row assistant">
-              <span className="bubble-ava" aria-hidden>✦</span>
+              <span className="bubble-ava" aria-hidden><Ic name="sparkle" size={16} strokeWidth={2.25} /></span>
               <div className="bubble assistant typing"><span /><span /><span /></div>
             </div>
           )}
@@ -207,7 +208,7 @@ export default function TroChuyenPage() {
             </button>
           ))}
           <button type="button" className="suggest-chip gold" onClick={() => setInput(`/hoitham ${call} ơi, `)} disabled={sending}>
-            🔊 Nhắn qua loa…
+            <Ic name="speaker" size={15} /> Nhắn qua loa…
           </button>
         </div>
 
@@ -227,7 +228,7 @@ export default function TroChuyenPage() {
               aria-label={listening ? "Dừng nghe" : "Nói bằng giọng"}
               title={listening ? "Dừng nghe" : "Nói bằng giọng"}
             >
-              {listening ? "⏹" : "🎤"}
+              {listening ? <Ic name="stop" size={18} /> : <Ic name="mic" size={18} />}
             </button>
           )}
           <input
@@ -246,7 +247,7 @@ export default function TroChuyenPage() {
             <input type="checkbox" checked={autoSpeak} onChange={(e) => setAutoSpeak(e.target.checked)} />
             Tự đọc to câu trả lời
           </label>
-          <button type="button" className="linkish" onClick={stopSpeaking}>⏸ Dừng đọc</button>
+          <button type="button" className="linkish" onClick={stopSpeaking}><Ic name="pause" size={14} /> Dừng đọc</button>
           <span className="sub">
             Trợ lý không chẩn đoán bệnh. Cảnh báo té ngã vẫn do thiết bị tự gửi. Lịch sử:{" "}
             <Link href="/loi-nhan">Nhật ký hỏi thăm</Link>

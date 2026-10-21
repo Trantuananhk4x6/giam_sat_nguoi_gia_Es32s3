@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Giám sát té ngã</title>
+<style>
+  :root{
+    --bg:#f4f6fb; --bg2:#eef1f8; --card:#ffffff; --line:#e6eaf2;
+    --fg:#1f2733; --dim:#6b7688; --faint:#9aa4b6;
+    --brand:#2563eb; --brand-soft:#e8f0fe;
+    --ok:#17a673; --ok-soft:#e4f6ee;
+    --warn:#e8930c; --warn-soft:#fdf2df;
+    --bad:#e23d4b; --bad-soft:#fdeaec;
+    --shadow:0 1px 2px rgba(22,34,64,.06),0 6px 20px rgba(22,34,64,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg);
+    color:var(--fg);
+    font:15px/1.55 "Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",sans-serif;
+    padding:20px 16px 40px;max-width:1120px;margin-inline:auto;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------------- Header ---------------- */
+  header{
+    display:flex;flex-wrap:wrap;gap:14px;align-items:center;
+    justify-content:space-between;margin-bottom:18px;
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{
+    width:42px;height:42px;border-radius:12px;flex:none;
+    background:linear-gradient(135deg,#3b82f6,#2563eb);
+    display:grid;place-items:center;box-shadow:var(--shadow);
+  }
+  .logo svg{width:24px;height:24px}
+  h1{font-size:19px;margin:0;font-weight:700;letter-spacing:-.01em}
+  .sub{color:var(--dim);font-size:13px}
+  .hdr-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  #clock{font-size:13px;color:var(--dim);font-variant-numeric:tabular-nums}
+
+  /* ---------------- Lưới & thẻ ---------------- */
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:18px;
+    padding:18px 18px 16px;box-shadow:var(--shadow);
+  }
+  .card h2{
+    font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--faint);margin:0 0 12px;font-weight:700;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card h2 .ico{width:15px;height:15px;color:var(--brand);opacity:.9}
+  .row{
+    display:flex;justify-content:space-between;gap:12px;align-items:center;
+    padding:8px 0;border-bottom:1px solid #f1f3f8;
+  }
+  .row:last-child{border-bottom:0;padding-bottom:0}
+  .row span{color:var(--dim)}
+  .row b{font-weight:600;font-variant-numeric:tabular-nums;text-align:right}
+
+  /* ---------------- Thẻ trạng thái lớn ---------------- */
+  .hero{
+    grid-column:1/-1;display:flex;flex-wrap:wrap;gap:20px;align-items:center;
+    position:relative;overflow:hidden;padding:22px 22px;
+    border-left:5px solid var(--brand);
+  }
+  .hero .badge{
+    width:58px;height:58px;border-radius:16px;flex:none;display:grid;place-items:center;
+    background:var(--brand-soft);color:var(--brand);
+  }
+  .hero .badge svg{width:30px;height:30px}
+  .hero.ok{border-left-color:var(--ok)}
+  .hero.ok .badge{background:var(--ok-soft);color:var(--ok)}
+  .hero.warn{border-left-color:var(--warn)}
+  .hero.warn .badge{background:var(--warn-soft);color:var(--warn)}
+  .hero.bad{border-left-color:var(--bad)}
+  .hero.bad .badge{background:var(--bad-soft);color:var(--bad)}
+  .hero.idle{border-left-color:var(--faint)}
+  .hero.idle .badge{background:#eef1f7;color:var(--faint)}
+  .state{font-size:25px;font-weight:800;line-height:1.15;letter-spacing:-.01em;margin-top:2px}
+  .hero.ok .state{color:var(--ok)}
+  .hero.warn .state{color:var(--warn)}
+  .hero.bad .state{color:var(--bad)}
+  .hero.warn,.hero.bad{animation:glow 1.6s ease-in-out infinite}
+  @keyframes glow{50%{box-shadow:var(--shadow),0 0 0 3px #e23d4b18}}
+
+  .countBox{
+    text-align:center;background:var(--warn-soft);border-radius:16px;
+    padding:10px 20px;min-width:120px;
+  }
+  .count{font-size:46px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--warn);line-height:1}
+  .countBox .sub{color:#b9790b}
+  .spacer{flex:1}
+
+  /* ---------------- Nút ---------------- */
+  .btns{display:flex;gap:10px;flex-wrap:wrap}
+  button{
+    font:inherit;font-weight:600;border:1px solid transparent;border-radius:12px;
+    padding:11px 16px;cursor:pointer;color:#fff;transition:transform .05s,filter .15s,box-shadow .15s;
+  }
+  button:hover{filter:brightness(1.05)}
+  button:active{transform:translateY(1px)}
+  button.big{min-width:140px;font-size:16px;font-weight:700;padding:16px 22px;box-shadow:var(--shadow)}
+  .b-ok{background:var(--ok)}
+  .b-sos{background:var(--bad)}
+  .b-gray{background:#fff;color:var(--fg);border-color:var(--line);font-weight:600}
+  .b-gray:hover{background:var(--bg2);filter:none}
+
+  /* ---------------- Chip / pill ---------------- */
+  .pill{
+    display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;
+    padding:5px 12px;border-radius:999px;background:#eef1f7;color:var(--dim);
+  }
+  .pill.on{background:var(--ok-soft);color:var(--ok)}
+  .pill.off{background:var(--bad-soft);color:var(--bad)}
+  .dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+  .pill.on .dot{animation:blink 1.4s ease-in-out infinite}
+  @keyframes blink{50%{opacity:.35}}
+
+  /* ---------------- Bảng nhật ký ---------------- */
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid #f1f3f8;white-space:nowrap}
+  tbody tr:hover{background:var(--bg2)}
+  th{color:var(--faint);font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  td.note{white-space:normal;color:var(--dim)}
+  .scroll{overflow-x:auto;margin:-2px -4px;padding:0 4px}
+  .tag{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;background:#eef1f7;color:var(--dim)}
+  .t-FALL_SUSPECT{background:var(--warn-soft);color:var(--warn)}
+  .t-EMERGENCY,.t-SOS,.t-SOS_REMOTE{background:var(--bad-soft);color:var(--bad)}
+  .t-CANCELLED,.t-RECOVERED,.t-TELEGRAM_OK,.t-PRESENCE_IN,.t-WIFI_UP{background:var(--ok-soft);color:var(--ok)}
+  .t-RADAR_ERROR,.t-TELEGRAM_FAIL,.t-WIFI_DOWN,.t-VITALS_ALERT{background:var(--bad-soft);color:#c0303d}
+
+  .hint{color:var(--dim);font-size:12.5px;margin-top:12px;line-height:1.5}
+  .hint code{background:var(--bg2);padding:1px 6px;border-radius:6px;font-size:12px}
+  footer{color:var(--faint);font-size:12px;margin-top:26px;text-align:center;line-height:1.6}
+  a{color:var(--brand);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .muted{color:var(--bad)!important}
+  .good{color:var(--ok)!important}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 21s-7-4.5-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.5-9 9-9 9z"/>
+      </svg>
+    </div>
+    <div>
+      <h1>Giám sát &amp; cảnh báo té ngã</h1>
+      <div class="sub"><span id="who">—</span> · <span id="place">—</span></div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <div id="clock">—</div>
+    <span class="pill" id="link"><i class="dot"></i><span id="linkTxt">đang kết nối…</span></span>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- ===================== Trạng thái chính ===================== -->
+  <div class="card hero idle" id="hero">
+    <div class="badge" id="heroIcon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+      </svg>
+    </div>
+    <div>
+      <div class="sub">Trạng thái hệ thống</div>
+      <div class="state" id="state">Đang kết nối…</div>
+      <div class="sub" id="stateSub">&nbsp;</div>
+    </div>
+    <div class="spacer"></div>
+    <div class="countBox" id="countWrap" style="display:none">
+      <div class="count" id="count">0</div>
+      <div class="sub">giây để bấm “Tôi ổn”</div>
+    </div>
+    <div class="btns">
+      <button class="big b-ok"  onclick="act('iamok')">TÔI ỔN</button>
+      <button class="big b-sos" onclick="confirmSos()">SOS</button>
+    </div>
+  </div>
+
+  <!-- ===================== Radar ===================== -->
+  <div class="card">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 12 4 6"/><path d="M3 12a9 9 0 0 1 9-9"/><path d="M7 12a5 5 0 0 1 5-5"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/></svg>Mô-đun radar 60 GHz</h2>
+    <div class="row"><span>Liên lạc</span><b id="rOnline">—</b></div>
+    <div class="row"><span>Trong phòng</span><b id="rPresent">—</b></div>
+    <div class="row"><span>Chuyển động</span><b id="rMove">—</b></div>
+    <div class="row"><span>Biên độ (0–100)</span><b id="rRange">—</b></div>
+    <div class="row"><span>Khoảng cách</span><b id="rDist">—</b></div>
+    <div class="row"><span>Cờ té ngã</span><b id="rFall">—</b></div>
+    <div class="row"><span>Nằm im một chỗ</span><b id="rStatic">—</b></div>
+    <div class="row"><span>Số lần báo ngã</span><b id="rFalls">—</b></div>
+    <div class="row"><span>Dữ liệu mới cách đây</span><b id="rAge">—</b></div>
+  </div>
+
+  <!-- ===================== Mạng & Cảnh báo ===================== -->
+  <div class="card">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="18.5" r="1" fill="currentColor"/></svg>Mạng &amp; cảnh báo</h2>
+    <div class="row"><span>Wi-Fi</span><b id="wUp">—</b></div>
+    <div class="row"><span>Tên mạng</span><b id="wSsid">—</b></div>
+    <div class="row"><span>Cường độ</span><b id="wRssi">—</b></div>
+    <div class="row"><span>Địa chỉ IP</span><b id="wIp">—</b></div>
+    <div class="row"><span>Kênh cảnh báo</span><b id="tChan">—</b></div>
+    <div class="row"><span>Tin đã gửi</span><b id="tSent">—</b></div>
+    <div class="row"><span>Tin đang chờ</span><b id="tPend">—</b></div>
+    <div class="row"><span>Kết quả gửi gần nhất</span><b id="tLast">—</b></div>
+  </div>
+
+  <!-- ===================== Chế độ & sinh hiệu ===================== -->
+  <div class="card" id="vitalCard" style="display:none">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2 5 4-10 2 5h6"/></svg>Chế độ radar &amp; sinh hiệu</h2>
+    <div class="row"><span>Chế độ đang chạy</span><b id="mMode">—</b></div>
+    <div class="row"><span>Đã ở chế độ này</span><b id="mSince">—</b></div>
+    <div class="row"><span>Số lần đổi chế độ</span><b id="mSw">—</b></div>
+    <div class="row"><span>Thời gian “mù” vì đổi chế độ</span><b id="mBlind">—</b></div>
+    <div class="row"><span>Trên giường</span><b id="vBed">—</b></div>
+    <div class="row"><span>Nhịp tim (ước lượng)</span><b id="vHr">—</b></div>
+    <div class="row"><span>Nhịp thở (ước lượng)</span><b id="vBr">—</b></div>
+    <div class="row"><span>Trạng thái giấc ngủ</span><b id="vSleep">—</b></div>
+    <div class="row"><span>Vùng vẫy bất thường</span><b id="vStr">—</b></div>
+    <div class="hint">
+      Nhịp tim và nhịp thở là <b>ước lượng bằng sóng radar, không phải thiết bị y tế</b>.
+      Chỉ đo được khi đang theo dõi giấc ngủ — lúc đó hệ thống <b>không phát hiện té ngã</b>.
+    </div>
+  </div>
+
+  <!-- ===================== Nút SOS đeo tay ===================== -->
+  <div class="card" id="rfCard" style="display:none">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4M3.5 3.5a12 12 0 0 0 0 17M20.5 3.5a12 12 0 0 1 0 17"/></svg>Nút SOS đeo tay (433 MHz)</h2>
+    <div class="row"><span>Mạch thu</span><b id="rfOn">—</b></div>
+    <div class="row"><span>Số lần bấm hợp lệ</span><b id="rfPress">—</b></div>
+    <div class="row"><span>Mã lạ đã bỏ qua</span><b id="rfRej">—</b></div>
+    <div class="row"><span>Mã nhận gần nhất</span><b id="rfCode">—</b></div>
+    <div class="hint">
+      Nếu “mã lạ đã bỏ qua” tăng nhanh thì gần đó có nguồn phát 433 MHz khác
+      (remote cửa cuốn, chuông cửa). Firmware chỉ nhận đúng mã đã khai trong <code>secrets.h</code>.
+    </div>
+  </div>
+
+  <!-- ===================== Số liệu ===================== -->
+  <div class="card">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Số liệu phiên làm việc</h2>
+    <div class="row"><span>Lần nghi ngờ té ngã</span><b id="sSus">—</b></div>
+    <div class="row"><span>Lần bấm “Tôi ổn”</span><b id="sCan">—</b></div>
+    <div class="row"><span>Lần phát cảnh báo</span><b id="sEmg">—</b></div>
+    <div class="row"><span>Lần bấm SOS</span><b id="sSos">—</b></div>
+    <div class="row"><span>Trễ cảnh báo gần nhất</span><b id="sLat">—</b></div>
+    <div class="row"><span>Thời gian chạy</span><b id="dUp">—</b></div>
+    <div class="row"><span>RAM trống</span><b id="dHeap">—</b></div>
+  </div>
+
+  <!-- ===================== Công cụ thử nghiệm ===================== -->
+  <div class="card" style="grid-column:1/-1">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v5l5 9a2 2 0 0 1-1.8 3H6.8A2 2 0 0 1 5 17l5-9V3"/><path d="M9 3h6"/></svg>Công cụ thử nghiệm <span style="text-transform:none;letter-spacing:0;color:var(--faint);font-weight:500">— dùng khi đo số liệu</span></h2>
+    <div class="btns">
+      <button class="b-gray" onclick="act('simfall')">Mô phỏng té ngã</button>
+      <button class="b-gray" onclick="act('present_on')">Giả lập có người</button>
+      <button class="b-gray" onclick="act('present_off')">Giả lập không người</button>
+      <button class="b-gray" onclick="act('testvoice')">Thử loa</button>
+      <button class="b-gray" onclick="act('testtg')">Thử Telegram</button>
+      <button class="b-gray" onclick="act('testmail')">Thử Email</button>
+      <button class="b-gray" onclick="act('testzalo')">Thử Zalo</button>
+      <button class="b-gray" onclick="location.href='/api/export.csv'">Tải nhật ký CSV</button>
+      <button class="b-gray" onclick="clearLog()">Xóa nhật ký</button>
+    </div>
+    <div class="hint">
+      “Mô phỏng té ngã” tạo một sự kiện ngã giả để chạy thử toàn bộ quy trình khi chưa có radar.
+      “Gửi cảnh báo thử” gửi một tin qua <b>tất cả kênh đang bật</b> (Telegram / Email / Zalo).
+      Nhớ xóa nhật ký trước mỗi phiên đo để số liệu sạch.
+    </div>
+  </div>
+
+  <!-- ===================== Nhật ký ===================== -->
+  <div class="card" style="grid-column:1/-1">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h11M8 9h11M8 15h11M8 20h11"/><circle cx="4" cy="4" r="1" fill="currentColor"/><circle cx="4" cy="9" r="1" fill="currentColor"/><circle cx="4" cy="15" r="1" fill="currentColor"/><circle cx="4" cy="20" r="1" fill="currentColor"/></svg>Nhật ký sự kiện</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>#</th><th>Thời điểm</th><th>Sự kiện</th><th>Nguồn</th>
+          <th>Trạng thái</th><th>Ghi chú</th>
+        </tr></thead>
+        <tbody id="log"><tr><td colspan="6" class="note">Chưa có dữ liệu…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Đồ án tổng hợp (402114) · Radar sóng milimet 60 GHz + ESP32-S3<br>
+  Trang giám sát do chính thiết bị phục vụ
+</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+let ws = null, wsOk = false, pollTimer = null;
+
+/* ---- Bộ icon SVG cho thẻ trạng thái lớn ---- */
+const ICONS = {
+  idle:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  ok:'<path d="M20 6 9 17l-5-5"/>',
+  warn:'<path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  bad:'<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v4"/><path d="M12 16h.01"/>'
+};
+
+/* ---------- Kết nối WebSocket, tự chuyển sang hỏi định kỳ nếu đứt ---------- */
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { wsOk = true; setLink(true); stopPoll(); };
+  ws.onclose = () => { wsOk = false; setLink(false); startPoll(); setTimeout(connect, 3000); };
+  ws.onerror = () => ws.close();
+  ws.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.events) renderLog(d.events); else render(d);
+  };
+}
+function setLink(on) {
+  $('link').className = 'pill ' + (on ? 'on' : 'off');
+  $('linkTxt').textContent = on ? 'Đang trực tuyến' : 'mất kết nối – đang thử lại';
+}
+function startPoll() {
+  if (pollTimer) return;
+  pollTimer = setInterval(async () => {
+    try {
+      render(await (await fetch('/api/status')).json());
+      renderLog(await (await fetch('/api/events')).json());
+    } catch (_) {}
+  }, 2000);
+}
+function stopPoll() { clearInterval(pollTimer); pollTimer = null; }
+
+/* ---------- Gửi thao tác ---------- */
+async function act(name) {
+  try { await fetch('/api/action?name=' + name, { method: 'POST' }); } catch (_) {}
+  if (!wsOk) setTimeout(async () => {
+    try { render(await (await fetch('/api/status')).json()); } catch (_) {}
+  }, 300);
+}
+function confirmSos() { if (confirm('Gửi cảnh báo khẩn cấp cho người thân ngay?')) act('sos'); }
+function clearLog()   { if (confirm('Xóa toàn bộ nhật ký sự kiện?')) act('clearlog'); }
+
+/* ---------- Hiển thị ---------- */
+const yn = (v, t = 'Có', f = 'Không') => v ? t : f;
+const moveTxt = m => ['Không có', 'Nằm/ngồi im', 'Đang hoạt động'][m] ?? '—';
+const hhmmss = s => {
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h ? `${h} giờ ${m} phút` : (m ? `${m} phút ${s % 60} giây` : `${s} giây`);
+};
+
+function render(d) {
+  $('who').textContent   = d.device.name;
+  $('place').textContent = d.device.place;
+  $('clock').textContent = d.device.clock;
+
+  // Màu + icon thẻ chính theo trạng thái
+  const cls = { KHONG_NGUOI:'idle', CO_NGUOI:'ok', NGHI_NGO_TE_NGA:'warn',
+                KHAN_CAP:'bad', KHOI_DONG:'idle' }[d.state] || 'idle';
+  $('hero').className = 'card hero ' + cls;
+  $('heroIcon').innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round">' + (ICONS[cls] || ICONS.idle) + '</svg>';
+  $('state').textContent = d.stateVi;
+
+  let sub = `Đã ở trạng thái này ${hhmmss(d.stateAge)}`;
+  if (d.cooldown > 0) sub += ` · đang nghỉ ${d.cooldown}s (bỏ qua báo ngã mới)`;
+  if (d.voice) sub += ' · loa đang phát';
+  if (d.simulate) sub += ' · CHẾ ĐỘ MÔ PHỎNG';
+  $('stateSub').textContent = sub;
+
+  $('countWrap').style.display = d.state === 'NGHI_NGO_TE_NGA' ? '' : 'none';
+  $('count').textContent = d.countdown;
+
+  const r = d.radar;
+  $('rOnline').textContent  = r.online ? 'Bình thường' : 'MẤT LIÊN LẠC';
+  $('rOnline').className     = r.online ? 'good' : 'muted';
+  $('rPresent').textContent = yn(r.present);
+  $('rMove').textContent    = moveTxt(r.movement);
+  $('rRange').textContent   = r.range;
+  $('rDist').textContent    = r.distance ? (r.distance / 100).toFixed(2) + ' m' : '—';
+  $('rFall').textContent    = yn(r.fall, 'ĐANG BÁO NGÃ', 'Bình thường');
+  $('rFall').className       = r.fall ? 'muted' : '';
+  $('rStatic').textContent  = yn(r.static);
+  $('rFalls').textContent   = `${r.falls} lần (lỗi đọc: ${r.errors})`;
+  $('rAge').textContent     = (r.ageMs / 1000).toFixed(1) + ' giây';
+
+  const w = d.wifi;
+  $('wUp').textContent   = w.up ? 'Đã kết nối' : 'Mất kết nối';
+  $('wUp').className     = w.up ? 'good' : 'muted';
+  $('wSsid').textContent = w.ssid;
+  $('wRssi').textContent = w.up ? w.rssi + ' dBm' : '—';
+  $('wIp').textContent   = w.ip;
+  $('tChan').textContent = d.telegram.channels || '—';
+  $('tSent').textContent = d.telegram.sent;
+  $('tPend').textContent = d.telegram.pending;
+  $('tLast').textContent = d.telegram.last;
+
+  /* ---- Chế độ radar & sinh hiệu (chỉ hiện khi bật chế độ giấc ngủ) ---- */
+  if (d.mode) {
+    $('vitalCard').style.display = d.mode.enabled ? '' : 'none';
+    $('mMode').textContent  = d.mode.vi;
+    $('mMode').className     = d.mode.code === 'DANG_DOI_CHE_DO' ? 'muted' : '';
+    $('mSince').textContent = hhmmss(d.mode.sinceS);
+    $('mSw').textContent    = d.mode.switches;
+    $('mBlind').textContent = (d.mode.blindMs / 1000).toFixed(1) + ' giây';
+  }
+  if (d.vitals) {
+    const v = d.vitals;
+    const sleepTxt = ['Ngủ sâu', 'Ngủ nông', 'Tỉnh', 'Không có người'][v.sleepState] ?? '—';
+    $('vBed').textContent   = v.valid ? yn(v.inBed) : '—';
+    $('vHr').textContent    = v.heartRate ? v.heartRate + ' nhịp/phút' : '—';
+    $('vBr').textContent    = v.breatheValue ? v.breatheValue + ' lần/phút' : '—';
+    $('vSleep').textContent = v.valid ? sleepTxt : '—';
+    $('vStr').textContent   = v.valid ? yn(v.struggle, 'CÓ', 'Không') : '—';
+    $('vStr').className      = v.struggle ? 'muted' : '';
+  }
+
+  /* ---- Nút SOS đeo tay ---- */
+  if (d.remote) {
+    $('rfCard').style.display = d.remote.enabled ? '' : 'none';
+    $('rfOn').textContent     = d.remote.enabled ? 'Đang hoạt động' : 'Chưa gắn';
+    $('rfPress').textContent  = d.remote.presses;
+    $('rfRej').textContent    = d.remote.rejected;
+    $('rfCode').textContent   = d.remote.lastCode || '—';
+  }
+
+  $('sSus').textContent  = d.stats.suspects;
+  $('sCan').textContent  = d.stats.cancelled;
+  $('sEmg').textContent  = d.stats.emergency;
+  $('sSos').textContent  = d.stats.sos;
+  $('sLat').textContent  = d.latencyMs ? (d.latencyMs / 1000).toFixed(1) + ' giây' : '—';
+  $('dUp').textContent   = hhmmss(d.device.uptimeS);
+  $('dHeap').textContent = Math.round(d.device.heap / 1024) + ' KB';
+
+  document.title = (d.state === 'KHAN_CAP' ? '🚨 ' :
+                    d.state === 'NGHI_NGO_TE_NGA' ? '⚠️ ' : '') + 'Giám sát té ngã';
+}
+
+function renderLog(list) {
+  if (!list.length) {
+    $('log').innerHTML = '<tr><td colspan="6" class="note">Chưa có sự kiện nào.</td></tr>';
+    return;
+  }
+  $('log').innerHTML = list.map(e => {
+    const t = e.ts > 1600000000
+      ? new Date(e.ts * 1000).toLocaleString('vi-VN')
+      : 'uptime ' + e.uptime + 's';
+    return `<tr><td>${e.id}</td><td>${t}</td>
+            <td><span class="tag t-${e.type}">${e.label}</span></td>
+            <td>${e.src}</td><td>${e.state}</td><td class="note">${e.note || ''}</td></tr>`;
+  }).join('');
+}
+
+connect();
+startPoll();          /* hỏi ngay một lần để trang có dữ liệu tức thì */
+</script>
+</body>
+</html>

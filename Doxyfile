@@ -1,0 +1,80 @@
+# =============================================================================
+#  Doxyfile - sinh "code graph" cho firmware he thong canh bao te nga
+#  Chay:   doxygen Doxyfile
+#  Ket qua: docs/code_graph/html/index.html  (mo bang trinh duyet)
+#
+#  Da bat san: call graph (ai goi gi), caller graph (ai goi minh),
+#  include graph, so do lop (class), so do cong tac (collaboration).
+#  Can Graphviz (dot) -> da cai o C:\Program Files\Graphviz\bin
+# =============================================================================
+
+# --- Thong tin du an ---
+PROJECT_NAME           = "He thong canh bao te nga - Firmware ESP32-S3"
+PROJECT_BRIEF          = "Code graph: so do goi ham, include va lop cua firmware"
+OUTPUT_DIRECTORY       = docs/code_graph
+OUTPUT_LANGUAGE        = English
+CREATE_SUBDIRS         = NO
+
+# --- Dau vao: chi quet ma nguon cua minh (bo qua .pio, lib ben thu ba) ---
+INPUT                  = src include README.md
+FILE_PATTERNS          = *.cpp *.h *.hpp *.c *.ino *.md
+RECURSIVE              = YES
+EXCLUDE                = include/secrets.h
+USE_MDFILE_AS_MAINPAGE = README.md
+
+# --- Trich xuat toi da de thay het ham, ke ca private/static ---
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_METHODS  = YES
+EXTRACT_ANON_NSPACES   = YES
+
+# --- Dau ra HTML (bo LaTeX cho nhanh) ---
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+HTML_OUTPUT            = html
+SEARCHENGINE           = YES
+
+# --- BAT GRAPHVIZ: day la phan "code graph" ---
+HAVE_DOT               = YES
+DOT_PATH               = "C:/Program Files/Graphviz/bin"
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = YES
+DOT_GRAPH_MAX_NODES    = 100
+MAX_DOT_GRAPH_DEPTH    = 0
+
+# So do lop & ke thua
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = YES
+GROUP_GRAPHS           = YES
+UML_LOOK               = YES
+TEMPLATE_RELATIONS     = YES
+
+# So do include (file nao include file nao)
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+
+# So do goi ham - QUAN TRONG NHAT cho "code graph"
+CALL_GRAPH             = YES
+CALLER_GRAPH           = YES
+
+# So do phu thuoc thu muc
+DIRECTORY_GRAPH        = YES
+
+# --- Cho phep hien ma nguon kem tham chieu cheo ---
+SOURCE_BROWSER         = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+VERBATIM_HEADERS       = YES
+
+# --- Giam on: bo canh bao thieu doc cho khoi rac mat ---
+QUIET                  = NO
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES
+
+# --- Giup Doxygen hieu macro Arduino de khong bo sot ham ---
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = NO
+PREDEFINED             = ARDUINO=10819 \
+                         ESP32 \
+                         BOARD_HAS_PSRAM

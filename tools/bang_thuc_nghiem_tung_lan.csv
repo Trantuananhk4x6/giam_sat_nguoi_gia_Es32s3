@@ -1,0 +1,13 @@
+﻿STT,Ngày giờ,Kịch bản,Lần thứ,Chiều cao lắp (cm),Độ nhạy (0-3),Kết quả (TP/FP/FN/TN),Thời gian từ lúc ngã đến khi loa hỏi (s),Thời gian từ lúc ngã đến khi nhận Telegram (s),Ghi chú
+1,,Ngã về trước,1,270,3,,,,
+2,,Ngã về trước,2,270,3,,,,
+3,,Ngã về trước,3,270,3,,,,
+,,,,,,,,,
+,,,,,,,,,
+,,,,,,,,,
+,,,,,,,,,
+,,,,,,,,,
+,,,,,,,,,
+,,,,,,,,,
+"HƯỚNG DẪN: mở trang giám sát -> Xóa nhật ký -> làm thí nghiệm -> Tải nhật ký CSV. File tải về đã có sẵn thời điểm và ghi chú trễ cảnh báo, chỉ cần dán sang đây và điền cột Kết quả.",,,,,,,,,
+"Để có số liệu so sánh làm báo cáo dày hơn: lặp lại toàn bộ bộ thí nghiệm ở 2 chiều cao lắp (vd 240 cm và 270 cm) hoặc 2 mức độ nhạy (vd 2 và 3), rồi vẽ biểu đồ cột so sánh.",,,,,,,,,

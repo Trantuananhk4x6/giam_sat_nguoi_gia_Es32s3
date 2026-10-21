@@ -1,0 +1,23 @@
+.pio/
+.vscode/
+include/secrets.h
+~$*.docx
+*.bin
+# Code graph sinh tu Doxygen (chay lai bang: doxygen Doxyfile)
+docs/code_graph/
+
+# File phu thuoc do trinh bien dich sinh ra (main.d, notifier.d...) va file sao luu
+*.d
+*.bak
+
+# Log / ket qua cua cong cu AI (Playwright MCP, semantic review)
+.playwright-mcp/
+semantic-review/
+
+# File nhap / ca nhan o thu muc goc, khong thuoc ma nguon
+# (xoa dong tuong ung neu muon dua file do len Git)
+/NOTED.md
+/Ke_hoach_do_an_canh_bao_te_nga.docx
+/image.png
+/nghe_thu_*.mp3
+/xem_thu_email.html

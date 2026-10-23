@@ -1,13 +1,14 @@
 "use client";
 
 /* Gửi lời nhắn để loa ESP32 đọc cho người cao tuổi nghe (giống lệnh /hoitham
-   trên Telegram), kèm nhật ký mọi lượt người nhà hỏi thăm qua Telegram và web. */
+   trên Telegram / Zalo), kèm nhật ký mọi lượt người nhà hỏi thăm qua Telegram,
+   Zalo và web. */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CHANNEL_LABEL, SPEAK_LABEL, capFirst, dayVN, hm, withoutCommand } from "@/components/labels";
 import { Ic } from "@/components/Icon";
-import type { Interaction, SpeakStatus, TelegramBotInfo } from "@/lib/types";
+import type { Interaction, SpeakStatus, TelegramBotInfo, ZaloBotInfo } from "@/lib/types";
 
-type ListRes = { items: Interaction[]; bot: TelegramBotInfo };
+type ListRes = { items: Interaction[]; bot: TelegramBotInfo; zalo?: ZaloBotInfo };
 type SendRes = { reply?: string; error?: string; spoken?: { text: string; status: SpeakStatus; seconds: number | null } | null };
 type Filter = "all" | "hoitham" | "hoi" | "tu-choi";
 
@@ -99,6 +100,9 @@ export default function LoiNhanPage() {
   }
   const bot = data?.bot;
   const botState = bot ? (BOT_STATE[bot.state] ?? { text: bot.state, tone: "" }) : null;
+  // Zalo chỉ hiện khi đã khai ZALO_BOT_TOKEN, để trang gọn với nhà chỉ dùng Telegram
+  const zalo = data?.zalo?.configured ? data.zalo : null;
+  const zaloState = zalo ? (BOT_STATE[zalo.state] ?? { text: zalo.state, tone: "" }) : null;
   const sentOk = result?.spoken?.status === "da-gui";
 
   return (
@@ -170,11 +174,29 @@ export default function LoiNhanPage() {
 
         <div className="card">
           <div className="card-head">
-            <h2>Nhắn qua Telegram</h2>
-            {botState && <span className={`st-pill ${botState.tone}`}>{botState.text}</span>}
+            <h2>{zalo ? "Nhắn qua Telegram / Zalo" : "Nhắn qua Telegram"}</h2>
+            <div className="btns">
+              {botState && <span className={`st-pill ${botState.tone}`}>{zalo ? `Telegram · ${botState.text}` : botState.text}</span>}
+              {zaloState && <span className={`st-pill ${zaloState.tone}`}>Zalo · {zaloState.text}</span>}
+            </div>
           </div>
           <ol className="howto">
-            <li>Mở chat với bot{bot?.botName ? <> <b>{bot.botName}</b></> : ""} trên Telegram.</li>
+            <li>
+              Mở chat với bot{bot?.botName ? <> <b>{bot.botName}</b></> : ""} trên Telegram
+              {zalo && (
+                <>
+                  {" "}hoặc{" "}
+                  {zalo.botName ? (
+                    // Tên bot Zalo bắt buộc mở đầu bằng "Bot" nên khỏi thêm chữ "bot" phía trước
+                    <>{/^bot\b/i.test(zalo.botName) ? "" : "bot "}<b>{zalo.botName}</b></>
+                  ) : (
+                    "bot"
+                  )}{" "}
+                  trên Zalo
+                </>
+              )}
+              .
+            </li>
             <li>
               Gõ <code className="cmd">/hoitham {call} ơi, 10h con gọi về nha</code>
             </li>
@@ -185,12 +207,21 @@ export default function LoiNhanPage() {
             <code className="cmd">/hoi &lt;câu hỏi&gt;</code>.
           </div>
           {bot?.detail && bot.state !== "dang-doc" && (
-            <div className="warnbox" style={{ marginTop: 12, marginBottom: 0 }}>{bot.detail}</div>
+            <div className="warnbox" style={{ marginTop: 12, marginBottom: 0 }}>{zalo ? `Telegram: ${bot.detail}` : bot.detail}</div>
+          )}
+          {zalo?.detail && zalo.state !== "dang-doc" && (
+            <div className="warnbox" style={{ marginTop: 12, marginBottom: 0 }}>Zalo: {zalo.detail}</div>
           )}
           {bot && (
             <div className="sub" style={{ marginTop: 10 }}>
-              Chat được phép: {bot.allowedChats.length ? bot.allowedChats.join(", ") : "chưa khai"} · đã xử lý{" "}
+              Chat được phép{zalo ? " (Telegram)" : ""}: {bot.allowedChats.length ? bot.allowedChats.join(", ") : "chưa khai"} · đã xử lý{" "}
               {bot.handled} tin từ lúc bật máy chủ.
+            </div>
+          )}
+          {zalo && (
+            <div className="sub" style={{ marginTop: 4 }}>
+              Chat được phép (Zalo): {zalo.allowedChats.length ? zalo.allowedChats.join(", ") : "chưa khai"} · đã xử lý{" "}
+              {zalo.handled} tin.
             </div>
           )}
         </div>

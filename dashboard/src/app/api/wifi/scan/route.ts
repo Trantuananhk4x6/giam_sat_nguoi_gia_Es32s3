@@ -1,24 +1,23 @@
 /**
- * GET /api/wifi/scan
- * Quét các mạng Wi-Fi xung quanh thiết bị. Trình duyệt KHÔNG gọi thẳng IP ESP32
- * (firmware không gửi header CORS) nên phải đi qua máy chủ Next.js: lấy host từ
- * getSettings() rồi chuyển tiếp sang firmware.
+ * GET /api/wifi/scan[?fresh=1]
+ * Các mạng Wi-Fi quanh thiết bị: { scanning, age, nets }. Firmware không chặn khi
+ * quét — trả ngay kết quả gần nhất kèm cờ scanning, trang /wifi hỏi lại mỗi ~1,2 s
+ * cho tới khi scanning=false. fresh=1 yêu cầu quét lại.
+ * Trình duyệt không gọi thẳng ESP32 (firmware không có CORS) nên phải đi qua đây.
  */
 import { NextResponse } from "next/server";
-import { friendlyError, wifiScan } from "@/lib/esp32";
+import { errorReply, wifiScan } from "@/lib/esp32";
 import { getSettings } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const settings = await getSettings();
+export async function GET(req: Request) {
+  const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+  const { esp32Host: host } = await getSettings();
   try {
-    const nets = await wifiScan(settings.esp32Host);
-    return NextResponse.json(nets);
+    return NextResponse.json(await wifiScan(host, fresh));
   } catch (err) {
-    return NextResponse.json(
-      { error: friendlyError(err, settings.esp32Host) },
-      { status: 502 },
-    );
+    const e = errorReply(err, host);
+    return NextResponse.json({ ok: false, error: e.error }, { status: e.status });
   }
 }

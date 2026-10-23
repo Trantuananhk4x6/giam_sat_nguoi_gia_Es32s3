@@ -15,7 +15,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { FeatureSample } from "./features";
 import type { LogisticModel } from "./train";
-import type { Interaction, Session, Settings, StoredEvent, Trial } from "./types";
+import type { Contact, Interaction, Session, Settings, StoredEvent, Trial } from "./types";
 
 /** Đổi được qua biến môi trường để chạy thử mà không đụng vào số liệu thật. */
 const DATA_DIR = path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.DASHBOARD_DATA_DIR || "data");
@@ -29,6 +29,8 @@ const F_MODEL = path.join(DATA_DIR, "model.json");
 const F_MESSAGES = path.join(DATA_DIR, "messages.jsonl");
 /** Vị trí đã đọc tới trong hàng tin Telegram, để tắt máy bật lại không đọc lại */
 const F_TELEGRAM = path.join(DATA_DIR, "telegram.json");
+/** Danh bạ người nhà: người cao tuổi nói "gửi cho <tên> là …" thì gửi tới đây */
+const F_CONTACTS = path.join(DATA_DIR, "contacts.json");
 /** Số lượt tương tác giữ trong RAM (cũ hơn vẫn còn trong file) */
 const MESSAGE_LIMIT = 2000;
 
@@ -41,6 +43,8 @@ export const DEFAULT_SETTINGS: Settings = {
   elderCall: "",
   ttsVoice: "vi-VN-HoaiMyNeural",
   telegramEnabled: true,
+  zaloEnabled: true,
+  relayLabel: "Người thân",
 };
 
 export type TelegramState = { offset: number; botName: string | null };
@@ -61,11 +65,22 @@ type Cache = {
   messages: Interaction[];
   telegram: TelegramState;
   writeQueue: Promise<unknown>;
-  /** Đã bổ sung trường mới cho bộ đệm của phiên bản cũ chưa (xem cache()) */
+  /** (bản cũ) cờ đã nâng cấp bộ đệm — nay dùng `version` */
   upgraded?: boolean;
+  /** Phiên bản cấu trúc bộ đệm đã nâng cấp tới (xem cache()) */
+  version?: number;
   /** Lần nạp nhật ký tương tác + trạng thái Telegram (chạy đúng một lần) */
   extras?: Promise<void>;
+  /** Danh bạ người nhà, nạp lười ở lần dùng đầu (xem contactsOf) */
+  contacts?: Contact[];
+  contactsLoad?: Promise<void>;
 };
+
+/**
+ * Tăng số này mỗi khi thêm trường mới vào Cache hoặc Settings: bộ đệm do code cũ
+ * tạo ra (đang sống qua HMR của `npm run dev`) sẽ được bổ sung trong cache().
+ */
+const CACHE_VERSION = 3; // 3: thêm Settings.zaloEnabled
 
 /** Model đã huấn luyện, lưu lại để không phải huấn luyện lại mỗi lần mở trang */
 export type StoredModel = {
@@ -98,12 +113,13 @@ function cache(): Cache {
   const c = g.__fallStore;
   // `npm run dev` nạp lại code mới (HMR) nhưng GIỮ bộ nhớ đệm do phiên bản cũ của
   // file này tạo ra: bổ sung các trường mới, nếu không chúng là undefined và mọi
-  // API đụng tới lời nhắn / Telegram đều lỗi 500.
-  if (!c.upgraded) {
+  // API đụng tới lời nhắn / Telegram / danh bạ đều lỗi 500.
+  if ((c.version ?? 0) < CACHE_VERSION) {
     c.messages ??= [];
     c.telegram ??= { offset: 0, botName: null };
     c.settings = { ...DEFAULT_SETTINGS, ...c.settings };
     c.upgraded = true;
+    c.version = CACHE_VERSION;
   }
   return c;
 }
@@ -410,6 +426,77 @@ export async function saveTelegramState(patch: Partial<TelegramState>): Promise<
   const c = cache();
   c.telegram = { ...c.telegram, ...patch };
   await enqueue(() => writeJsonAtomic(F_TELEGRAM, c.telegram));
+}
+
+// ------------------------------------------------------ Danh bạ người nhà --
+
+export type ContactInput = Pick<Contact, "name" | "aliases" | "telegramChatId" | "email"> & {
+  id?: string;
+  /** Không gửi thì giữ nguyên mã Zalo đang lưu (sửa người cũ) / để trống (thêm mới) */
+  zaloChatId?: string;
+};
+
+/** Bỏ bản ghi hỏng / thiếu trường (file có thể bị sửa tay bằng Notepad). */
+function cleanContact(x: unknown): Contact | null {
+  if (!x || typeof x !== "object") return null;
+  const r = x as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === "string" ? v.normalize("NFC").trim() : typeof v === "number" ? String(v) : "");
+  const name = text(r.name);
+  if (!name) return null;
+  const now = Date.now();
+  return {
+    id: text(r.id) || newId("nn"),
+    name,
+    aliases: Array.isArray(r.aliases) ? r.aliases.map(text).filter(Boolean) : [],
+    telegramChatId: text(r.telegramChatId),
+    zaloChatId: text(r.zaloChatId),
+    email: text(r.email),
+    createdAt: Number(r.createdAt) || now,
+    updatedAt: Number(r.updatedAt) || now,
+  };
+}
+
+/** Nạp danh bạ một lần (lười, nên bộ đệm cũ sống qua HMR cũng nạp được). */
+async function contactsOf(c: Cache): Promise<Contact[]> {
+  c.contactsLoad ??= readJsonSafe<unknown>(F_CONTACTS, []).then((raw) => {
+    c.contacts = (Array.isArray(raw) ? raw : []).map(cleanContact).filter((x): x is Contact => x !== null);
+  });
+  await c.contactsLoad;
+  return (c.contacts ??= []);
+}
+
+export async function getContacts(): Promise<Contact[]> {
+  return contactsOf(cache());
+}
+
+/** Thêm mới (không có id) hoặc cập nhật một người trong danh bạ. Kiểm tra dữ liệu ở route API. */
+export async function saveContact(input: ContactInput): Promise<Contact> {
+  const list = await contactsOf(cache());
+  const now = Date.now();
+  const i = input.id ? list.findIndex((x) => x.id === input.id) : -1;
+  const saved: Contact = {
+    id: i >= 0 ? list[i].id : newId("nn"),
+    name: input.name,
+    aliases: input.aliases,
+    telegramChatId: input.telegramChatId,
+    zaloChatId: input.zaloChatId ?? (i >= 0 ? list[i].zaloChatId : ""),
+    email: input.email,
+    createdAt: i >= 0 ? list[i].createdAt : now,
+    updatedAt: now,
+  };
+  if (i >= 0) list[i] = saved;
+  else list.push(saved);
+  await enqueue(() => writeJsonAtomic(F_CONTACTS, list));
+  return saved;
+}
+
+export async function deleteContact(id: string): Promise<boolean> {
+  const list = await contactsOf(cache());
+  const i = list.findIndex((x) => x.id === id);
+  if (i < 0) return false;
+  list.splice(i, 1);
+  await enqueue(() => writeJsonAtomic(F_CONTACTS, list));
+  return true;
 }
 
 /** Sinh mã định danh ngắn, đủ dùng cho dữ liệu đồ án. */

@@ -109,6 +109,15 @@ struct RadarSnapshot {
     bool     modelReady  = false;  ///< Đã nạp trọng số model chưa
     bool     modelFall   = false;  ///< Model cho rằng vừa có té ngã
     float    modelProb   = 0.0f;   ///< Xác suất model đưa ra, 0..1
+
+    // --- Kết quả hai mạng nơ-ron nhỏ (xem src/core/nn_model.*) ---
+    // Mạnh hơn hồi quy logistic ở trên rất nhiều nhưng vẫn chạy trên ESP32.
+    bool     nnReady       = false;  ///< Đã nạp trọng số nn_weights.h chưa
+    bool     nnFall        = false;  ///< Mạng té ngã kết luận có ngã
+    float    nnProb        = 0.0f;   ///< Xác suất mạng té ngã đưa ra, 0..1
+    uint8_t  nnPosture     = 0;      ///< Tư thế nhận ra (NnModel::Posture)
+    float    nnPostureProb = 0.0f;   ///< Xác suất của tư thế đang báo
+    float    nnFloorProb   = 0.0f;   ///< Riêng xác suất "đang nằm trên sàn"
 };
 
 /// Phân loại sự kiện để ghi nhật ký và hiển thị trên web

@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { overviewComment } from "@/lib/family-bot";
 import { getOverview } from "@/lib/health";
 import { pollerSnapshot } from "@/lib/poller";
+import { zaloBotInfo } from "@/lib/zalo-bot";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,7 +17,13 @@ export const maxDuration = 60;
 export async function GET() {
   const overview = await getOverview();
   const snap = pollerSnapshot();
-  return NextResponse.json({ ...overview, series: snap.series.slice(-240) });
+  const zalo = zaloBotInfo();
+  return NextResponse.json({
+    ...overview,
+    series: snap.series.slice(-240),
+    // Trạng thái bot Zalo của dashboard (null = chưa khai ZALO_BOT_TOKEN)
+    zaloBotState: zalo.configured && zalo.enabled ? zalo.state : null,
+  });
 }
 
 export async function POST(req: Request) {

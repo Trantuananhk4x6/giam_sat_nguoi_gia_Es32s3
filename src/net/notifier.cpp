@@ -12,8 +12,17 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+// secrets.h tạo từ bản mẫu CŨ (trước khi có Zalo Bot) không có hai dòng này ->
+// coi như tắt Zalo, vẫn build được mà không phải sửa secrets.h.
+#ifndef ZALO_BOT_TOKEN
+#define ZALO_BOT_TOKEN ""
+#endif
+#ifndef ZALO_CHAT_ID
+#define ZALO_CHAT_ID ""
+#endif
+
 // ===========================================================================
-//  GỬI CẢNH BÁO QUA NHIỀU KÊNH (Telegram + Email Resend + Zalo OA tùy chọn)
+//  GỬI CẢNH BÁO QUA NHIỀU KÊNH (Telegram + Zalo Bot + Email Resend)
 // ===========================================================================
 //
 //  Mỗi tin cảnh báo được gửi SONG SONG qua tất cả các kênh đang bật. Mỗi tin
@@ -24,6 +33,24 @@
 //
 //  Hàng đợi được ghi xuống LittleFS sau mỗi thay đổi nên mất điện giữa chừng
 //  thì bật lại tin vẫn còn và gửi tiếp.
+//
+//  NHIỀU NGƯỜI NHẬN TELEGRAM: TELEGRAM_CHAT_ID có thể là danh sách chat id cách
+//  nhau dấu phẩy, ví dụ "111111111,222222222". Mỗi người nhận một tin riêng. Tin
+//  giữ thêm mặt nạ tgLeft cho biết người nào CÒN chưa nhận, nên lần thử lại chỉ
+//  gửi cho người đó, không gửi trùng cho người đã nhận. ZALO_CHAT_ID y hệt, mặt
+//  nạ là zlLeft.
+//
+//  ZALO BOT (bot.zapps.me) là nền tảng bot CHÍNH THỨC của Zalo, tạo từ tài khoản
+//  Zalo cá nhân, API gần giống Telegram: POST https://bot-api.zaloplatforms.com/
+//  bot<TOKEN>/<method>. Khác Telegram ở chỗ: chat id là chuỗi (không phải số),
+//  không nhận HTML (gửi văn thuần), tối đa 2000 ký tự, và getUpdates mỗi lần
+//  trả MỘT tin, không có offset. Chat hai chiều Zalo chạy trong task riêng
+//  (zaloTask) bằng long polling, không chen vào hàng đợi cảnh báo.
+//
+//  LỖI VĨNH VIỄN (sai chat id, người nhận chưa bấm Start hoặc đã chặn bot, sai
+//  token, Resend từ chối địa chỉ nhận...) thì bỏ ngay người / kênh đó cho tin
+//  này, không thử lại 8 lần: tin lỗi nằm đầu hàng đợi sẽ chặn các cảnh báo phía
+//  sau tới khoảng 2 phút.
 // ===========================================================================
 
 namespace Notifier {
@@ -38,11 +65,40 @@ constexpr uint8_t CH_ZALO     = 1 << 2;
 // Qua so lan thu nay thi bo tin de mot kenh hong vinh vien khong chan ca hang doi.
 constexpr uint8_t MAX_TRIES_PER_ITEM = 8;
 
+// --- Người nhận Telegram, tách từ TELEGRAM_CHAT_ID (xem đầu file) ---
+constexpr uint8_t MAX_TG_CHATS = 8;   ///< vừa một byte mặt nạ Item::tgLeft
+String  g_tgChats[MAX_TG_CHATS];
+uint8_t g_tgCount  = 0;
+bool    g_tgParsed = false;
+
+// --- Zalo Bot ---
+constexpr const char* ZALO_API_BASE = "https://bot-api.zaloplatforms.com/bot";
+constexpr uint8_t  MAX_ZL_CHATS        = 8;      ///< vừa một byte mặt nạ Item::zlLeft
+/// Zalo giới hạn 2000 ký tự (đơn vị UTF-16). Tiếng Việt tốn 1–3 byte UTF-8 mỗi
+/// ký tự, nên cắt theo byte ở mức này là luôn nằm dưới giới hạn đó.
+constexpr size_t   ZALO_TEXT_MAX_BYTES = 1800;
+/// Tin người nhà gửi đã chờ quá lâu (thiết bị mất mạng / vừa bật lại) thì bỏ qua
+/// thay vì trả lời dồn dập một loạt tin cũ.
+constexpr int64_t  ZALO_STALE_S        = 10 * 60;
+String  g_zlChats[MAX_ZL_CHATS];
+uint8_t g_zlCount  = 0;
+bool    g_zlParsed = false;
+
+/// Kết quả một lần gửi tới một người / một kênh.
+enum class SendResult : uint8_t {
+    Ok,       ///< đã gửi
+    Retry,    ///< lỗi tạm (mất mạng, máy chủ bận, gửi nhanh quá) -> thử lại sau
+    GiveUp    ///< lỗi vĩnh viễn -> bỏ người / kênh này cho tin này
+};
+
 struct Item {
     time_t  ts       = 0;
     String  text;              ///< nội dung (định dạng HTML, dùng chung mọi kênh)
     uint8_t pending  = 0;      ///< các kênh CÒN phải gửi (mặt nạ CH_*)
+    uint8_t tgLeft   = 0;      ///< người nhận Telegram CÒN phải gửi (bit i = g_tgChats[i])
+    uint8_t zlLeft   = 0;      ///< người nhận Zalo CÒN phải gửi (bit i = g_zlChats[i])
     uint8_t tries    = 0;      ///< so lan da thu gui item nay (chong ket hang doi)
+    bool    delivered = false; ///< đã tới được ít nhất một người / một kênh
 };
 
 std::deque<Item>  g_queue;
@@ -66,25 +122,129 @@ volatile bool     g_leaseOn    = false;  ///< dashboard đang giữ quyền đ�
 volatile uint32_t g_leaseUntil = 0;      ///< millis() lúc hết hạn thuê
 bool              g_afterLease = false;  ///< vừa lấy lại quyền -> bỏ tin quá cũ (chỉ task notifier dùng)
 
+// --- Quyền đọc tin Zalo (cùng spinlock g_leaseMux) ---
+volatile bool     g_zlLeaseOn    = false;
+volatile uint32_t g_zlLeaseUntil = 0;
+/// Task Zalo đang trong một lượt hỏi/trả lời tin. Khi cờ này bật, ESP32 vẫn báo
+/// "device" dù dashboard đã xin quyền: lượt hỏi dở có thể nhận tin và Zalo không
+/// trả lại tin đó cho ai khác nữa.
+volatile bool     g_zlInFlight   = false;
+TaskHandle_t      g_zlTask       = nullptr;
+char              g_zlPollResult[64] = "chua hoi lan nao";
+
+/// Người lạ đã được báo mã chat lúc nào (chỉ task Zalo dùng), để không trả lời
+/// quá 1 lần / 10 phút cho cùng một người.
+struct RefusedChat { String chat; uint32_t at = 0; };
+RefusedChat g_zlRefused[4];
+
 struct Lock {
     Lock()  { if (g_mutex) xSemaphoreTake(g_mutex, portMAX_DELAY); }
     ~Lock() { if (g_mutex) xSemaphoreGive(g_mutex); }
 };
 
+/// Tách chuỗi "id1,id2,..." thành danh sách người nhận (bỏ khoảng trắng, mục
+/// rỗng, mục trùng), tối đa `maxCount` người.
+void parseChatList(const char* list, String* out, uint8_t& count, uint8_t maxCount) {
+    const String all = list;
+    int start = 0;
+    while (start <= (int)all.length() && count < maxCount) {
+        int comma = all.indexOf(',', start);
+        if (comma < 0) comma = all.length();
+        String id = all.substring(start, comma);
+        id.trim();
+        bool dup = false;
+        for (uint8_t i = 0; i < count; ++i) if (out[i] == id) dup = true;
+        if (id.length() >= 3 && !dup) out[count++] = id;
+        start = comma + 1;
+    }
+}
+
+/// Tách TELEGRAM_CHAT_ID thành danh sách người nhận. Chạy một lần; begin() gọi
+/// đầu tiên, trước khi có task nào đọc.
+void parseTelegramChats() {
+    if (g_tgParsed) return;
+    g_tgParsed = true;
+    parseChatList(TELEGRAM_CHAT_ID, g_tgChats, g_tgCount, MAX_TG_CHATS);
+}
+
+/// Tách ZALO_CHAT_ID (chat id Zalo là chuỗi chữ số hex, ví dụ 3becaa50ae12474c1e03).
+void parseZaloChats() {
+    if (g_zlParsed) return;
+    g_zlParsed = true;
+    parseChatList(ZALO_CHAT_ID, g_zlChats, g_zlCount, MAX_ZL_CHATS);
+}
+
+/// Mặt nạ "mọi người nhận Telegram": bit i ứng với g_tgChats[i].
+uint8_t allTelegramChats() {
+    parseTelegramChats();
+    return g_tgCount >= 8 ? 0xFF : (uint8_t)((1u << g_tgCount) - 1u);
+}
+
+/// Chat này có trong TELEGRAM_CHAT_ID không (chat hai chiều chỉ trả lời các chat này).
+bool isFamilyChat(const String& chatId) {
+    parseTelegramChats();
+    for (uint8_t i = 0; i < g_tgCount; ++i) if (g_tgChats[i] == chatId) return true;
+    return false;
+}
+
+/// Người nhận Telegram cho một tin mới gửi qua các kênh `channels` (send/sendOne
+/// nằm ngoài namespace ẩn danh nên không gọi thẳng CH_TELEGRAM ở đó được: tên này
+/// trùng với hằng công khai trong notifier.h).
+uint8_t telegramTargets(uint8_t channels) {
+    return (channels & CH_TELEGRAM) ? allTelegramChats() : 0;
+}
+
+/// Mặt nạ "mọi người nhận Zalo": bit i ứng với g_zlChats[i].
+uint8_t allZaloChats() {
+    parseZaloChats();
+    return g_zlCount >= 8 ? 0xFF : (uint8_t)((1u << g_zlCount) - 1u);
+}
+
+/// Chat Zalo này có trong ZALO_CHAT_ID không.
+bool isZaloFamilyChat(const String& chatId) {
+    parseZaloChats();
+    for (uint8_t i = 0; i < g_zlCount; ++i) if (g_zlChats[i] == chatId) return true;
+    return false;
+}
+
+/// Người nhận Zalo cho một tin mới gửi qua các kênh `channels`.
+uint8_t zaloTargets(uint8_t channels) {
+    return (channels & CH_ZALO) ? allZaloChats() : 0;
+}
+
 // --- Kênh nào đang được bật (đọc từ secrets.h) ---
 bool telegramConfigured() {
-    return strlen(TELEGRAM_BOT_TOKEN) >= 20 && strlen(TELEGRAM_CHAT_ID) >= 3;
+    parseTelegramChats();
+    return strlen(TELEGRAM_BOT_TOKEN) >= 20 && g_tgCount > 0;
 }
 bool emailConfigured() {
     return strlen(RESEND_API_KEY) >= 10 && strlen(EMAIL_TO) >= 5;
 }
+/// Đã khai token Zalo Bot (dạng "<số>:<chuỗi bí mật>").
+bool zaloTokenSet() {
+    return strlen(ZALO_BOT_TOKEN) >= 20;
+}
+/// Gửi cảnh báo qua Zalo được không: cần token + ít nhất một người nhận.
 bool zaloConfigured() {
-    return strlen(ZALO_OA_TOKEN) >= 10 && strlen(ZALO_USER_ID) >= 1;
+    parseZaloChats();
+    return zaloTokenSet() && g_zlCount > 0;
 }
 
 /// Chat hai chiều có chạy không (bật chu kỳ hỏi tin + đã cấu hình Telegram).
 bool pollingEnabled() {
     return TELEGRAM_POLL_MS > 0 && telegramConfigured();
+}
+
+/// Chat hai chiều Zalo: chỉ cần token, chưa có người nhận cũng chạy, để người
+/// nhà nhắn cho bot là được báo lại mã chat của mình (bước lấy ZALO_CHAT_ID).
+bool zaloPollingEnabled() {
+    return ZALO_POLL_TIMEOUT_S > 0 && zaloTokenSet();
+}
+
+/// Dashboard còn giữ quyền đọc tin Zalo không. PHẢI gọi trong g_leaseMux.
+bool zaloLeaseActiveLocked() {
+    if (g_zlLeaseOn && (int32_t)(g_zlLeaseUntil - millis()) <= 0) g_zlLeaseOn = false;
+    return g_zlLeaseOn;
 }
 
 /// Dashboard còn giữ quyền đọc tin không. So sánh kiểu int32 để qua mốc tràn
@@ -120,11 +280,26 @@ String stripHtml(const String& html) {
         if (c == '>')      { inTag = false; continue; }
         if (!inTag)        out += c;
     }
-    // Khôi phục vài entity hay dùng
-    out.replace("&amp;", "&");
+    // Khôi phục vài entity hay dùng; "&amp;" để CUỐI để "&amp;lt;" ra đúng "&lt;"
     out.replace("&lt;", "<");
     out.replace("&gt;", ">");
+    out.replace("&quot;", "\"");
+    out.replace("&#39;", "'");
+    out.replace("&amp;", "&");
     return out;
+}
+
+/// Bản văn thuần để gửi Zalo: bỏ thẻ HTML, cắt cho vừa giới hạn độ dài của Zalo
+/// (cắt ở ranh giới ký tự UTF-8 để không làm vỡ chữ có dấu).
+String zaloText(const String& html) {
+    String t = stripHtml(html);
+    if (t.length() > ZALO_TEXT_MAX_BYTES) {
+        size_t cut = ZALO_TEXT_MAX_BYTES;
+        while (cut > 0 && (((uint8_t)t[cut]) & 0xC0) == 0x80) --cut;
+        t = t.substring(0, cut);
+        t += "\xE2\x80\xA6";   // …
+    }
+    return t;
 }
 
 /// Thoat ky tu dac biet de nhet chuoi vao HTML an toan (dung cho template email).
@@ -155,6 +330,9 @@ void persistLocked() {
         o["ts"]      = (uint32_t)it.ts;
         o["text"]    = it.text;
         o["pending"] = it.pending;
+        o["tg"]      = it.tgLeft;
+        o["zl"]      = it.zlLeft;
+        o["ok"]      = it.delivered;
     }
     File f = LittleFS.open(QUEUE_FILE, "w");
     if (!f) return;
@@ -178,6 +356,18 @@ void loadQueue() {
         // lại qua mọi kênh đang bật.
         it.pending = (uint8_t)(o["pending"] | enabledChannels());
         it.pending &= enabledChannels();   // bỏ bit của kênh giờ đã tắt (tránh kẹt)
+        // Tin cũ (trước khi có nhiều người nhận) không có "tg" -> gửi cho mọi người.
+        // Danh sách người nhận có thể đã đổi sau khi nạp lại firmware -> cắt cho vừa.
+        it.tgLeft  = (uint8_t)(o["tg"] | allTelegramChats());
+        it.tgLeft &= allTelegramChats();
+        if (!(it.pending & CH_TELEGRAM)) it.tgLeft = 0;
+        else if (it.tgLeft == 0)         it.pending &= (uint8_t)~CH_TELEGRAM;
+        // Zalo y hệt (tin cũ từ thời Zalo OA không có "zl" -> gửi cho mọi người nhận).
+        it.zlLeft  = (uint8_t)(o["zl"] | allZaloChats());
+        it.zlLeft &= allZaloChats();
+        if (!(it.pending & CH_ZALO)) it.zlLeft = 0;
+        else if (it.zlLeft == 0)     it.pending &= (uint8_t)~CH_ZALO;
+        it.delivered = o["ok"] | false;
         it.tries   = (uint8_t)(o["tries"] | 0);
         // Chỉ nạp lại tin còn kênh để gửi; tin không còn kênh nào thì bỏ.
         if (it.text.length() && it.pending != 0) g_queue.push_back(it);
@@ -189,11 +379,11 @@ void loadQueue() {
 
 // ---------------------------------------------------------------------------
 //  Gửi thật theo từng kênh. Mỗi hàm CHẶN 1–3 giây nên chỉ gọi trong task.
-//  Trả về true nếu gửi thành công (hoặc kênh không cần gửi nữa).
+//  Mọi kênh trả SendResult (gửi được / thử lại sau / bỏ hẳn).
 // ---------------------------------------------------------------------------
 
-/// Kênh 1: Telegram Bot API.
-bool postToTelegram(const Item& item) {
+/// Kênh 1: Telegram Bot API, gửi tới MỘT người nhận (chatId).
+SendResult postToTelegram(const Item& item, const String& chatId) {
     WiFiClientSecure client;
     client.setInsecure();          // đủ dùng cho đồ án (xem chú thích bên dưới)
     client.setTimeout(10);
@@ -201,7 +391,7 @@ bool postToTelegram(const Item& item) {
     const String url = String("https://api.telegram.org/bot") + TELEGRAM_BOT_TOKEN + "/sendMessage";
 
     JsonDocument body;
-    body["chat_id"]    = TELEGRAM_CHAT_ID;
+    body["chat_id"]    = chatId;
     body["text"]       = item.text;
     body["parse_mode"] = "HTML";
     String payload;
@@ -211,7 +401,7 @@ bool postToTelegram(const Item& item) {
     http.setTimeout(12000);
     if (!http.begin(client, url)) {
         strlcpy(g_lastResult, "Telegram: khong mo duoc HTTPS", sizeof(g_lastResult));
-        return false;
+        return SendResult::Retry;
     }
     http.addHeader("Content-Type", "application/json");
     const int code = http.POST(payload);
@@ -220,12 +410,16 @@ bool postToTelegram(const Item& item) {
 
     if (code == 200) {
         strlcpy(g_lastResult, "Telegram: OK", sizeof(g_lastResult));
-        return true;
+        return SendResult::Ok;
     }
-    // 401 = token sai, 400 = chat id sai
-    snprintf(g_lastResult, sizeof(g_lastResult), "Telegram HTTP %d %.40s", code, resp.c_str());
-    Serial.printf("[TG] Gui that bai: %s\n", g_lastResult);
-    return false;
+    // 400 = chat id sai / tin hỏng, 403 = người nhận chưa bấm Start hoặc đã chặn
+    // bot, 401/404 = token sai: thử lại cũng vô ích -> bỏ người nhận này cho tin
+    // này. Còn lại (mất mạng, 429 gửi nhanh quá, lỗi 5xx) thì thử lại sau.
+    const bool permanent = (code == 400 || code == 401 || code == 403 || code == 404);
+    snprintf(g_lastResult, sizeof(g_lastResult), "Telegram %s HTTP %d %.40s",
+             chatId.c_str(), code, resp.c_str());
+    Serial.printf("[TG] Gui that bai%s: %s\n", permanent ? " (bo, khong thu lai)" : "", g_lastResult);
+    return permanent ? SendResult::GiveUp : SendResult::Retry;
 }
 
 /// Dựng email HTML đầy đủ (có khung, màu theo mức độ) từ nội dung tin.
@@ -306,7 +500,7 @@ String buildEmailHtml(const String& content, String& subjectOut) {
 }
 
 /// Kênh 2: Email qua Resend (POST https://api.resend.com/emails).
-bool postToEmail(const Item& item) {
+SendResult postToEmail(const Item& item) {
     WiFiClientSecure client;
     client.setInsecure();
     client.setTimeout(10);
@@ -335,7 +529,7 @@ bool postToEmail(const Item& item) {
     http.setTimeout(12000);
     if (!http.begin(client, "https://api.resend.com/emails")) {
         strlcpy(g_lastResult, "Email: khong mo duoc HTTPS", sizeof(g_lastResult));
-        return false;
+        return SendResult::Retry;
     }
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Authorization", String("Bearer ") + RESEND_API_KEY);
@@ -346,50 +540,93 @@ bool postToEmail(const Item& item) {
     // Resend trả 200 hoặc 201 kèm id của email khi thành công.
     if (code == 200 || code == 201) {
         strlcpy(g_lastResult, "Email: OK", sizeof(g_lastResult));
-        return true;
+        return SendResult::Ok;
     }
-    // 403 = chưa xác minh tên miền / gửi tới địa chỉ lạ; 401 = API key sai
+    // 403 = chưa xác minh tên miền / gửi tới địa chỉ lạ (Resend chỉ cho gửi tới email
+    // chủ tài khoản), 401 = API key sai, 400/422 = dữ liệu sai: thử lại cũng vô ích
+    // -> bỏ email cho tin này. Còn lại (mất mạng, 429, lỗi 5xx) thì thử lại sau.
+    const bool permanent = (code == 400 || code == 401 || code == 403 || code == 404 || code == 422);
     snprintf(g_lastResult, sizeof(g_lastResult), "Email HTTP %d %.40s", code, resp.c_str());
-    Serial.printf("[MAIL] Gui that bai: %s\n", g_lastResult);
-    return false;
+    Serial.printf("[MAIL] Gui that bai%s: %s\n", permanent ? " (bo, khong thu lai)" : "", g_lastResult);
+    return permanent ? SendResult::GiveUp : SendResult::Retry;
 }
 
-/// Kênh 3 (tùy chọn): Zalo Official Account — gửi tin văn bản cho user đã quan
-/// tâm OA. API: POST https://openapi.zalo.me/v3.0/oa/message/cs
-bool postToZaloOA(const Item& item) {
+/// Gọi một phương thức Zalo Bot API (POST JSON). An toàn khi hai task gọi cùng
+/// lúc (mỗi task dùng client riêng). Trả về "mã hiệu dụng":
+///   200      thành công ({"ok":true,...})
+///   > 0      HTTP status nếu khác 200, hoặc "error_code" trong thân JSON khi
+///            ok=false (Zalo hay trả HTTP 200 kèm {"ok":false,"error_code":408}
+///            nghĩa là hết lượt chờ mà không có tin mới)
+///   <= 0     lỗi kết nối (mã lỗi âm của HTTPClient)
+/// `client` có thể đang giữ kết nối từ lần gọi trước (keep-alive): nếu kết nối
+/// cũ đã bị máy chủ đóng thì tự mở kết nối mới và thử lại đúng một lần.
+int zaloCall(WiFiClientSecure& client, const char* method, const String& payload,
+             uint32_t timeoutMs, String* respOut) {
+    const String url = String(ZALO_API_BASE) + ZALO_BOT_TOKEN + "/" + method;
+    int    code = 0;
+    String resp;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const bool reused = client.connected();
+        HTTPClient http;
+        http.setReuse(true);
+        http.setTimeout((uint16_t)(timeoutMs > 60000 ? 60000 : timeoutMs));
+        if (!http.begin(client, url)) { client.stop(); return -1; }
+        http.addHeader("Content-Type", "application/json");
+        code = http.POST(payload);
+        resp = (code > 0) ? http.getString() : String();
+        http.end();
+        if (code > 0) break;
+        client.stop();              // kết nối hỏng: lần sau mở mới
+        if (!reused) break;         // không phải do kết nối cũ -> khỏi thử lại
+    }
+    if (respOut) *respOut = resp;
+    if (code <= 0) return code;
+
+    JsonDocument filter;
+    filter["ok"]         = true;
+    filter["error_code"] = true;
+    JsonDocument doc;
+    if (deserializeJson(doc, resp, DeserializationOption::Filter(filter))) {
+        return code == 200 ? 502 : code;   // thân không phải JSON: coi như máy chủ trục trặc
+    }
+    if (code == 200 && (doc["ok"] | false)) return 200;
+    if (code != 200) return code;
+    const int ec = doc["error_code"] | 0;
+    return ec > 0 ? ec : 400;              // ok=false mà không ghi mã -> coi như bị từ chối
+}
+
+/// Lỗi gửi Zalo nào là VĨNH VIỄN (thử lại vô ích): máy chủ đã trả lời và từ chối
+/// (sai token, sai chat id, người nhận chưa nhắn cho bot / đã chặn bot...). Còn
+/// mất mạng, 408, 429 gửi nhanh quá, lỗi 5xx thì thử lại sau.
+bool zaloPermanent(int code) {
+    return code > 0 && code != 408 && code != 429 && code < 500;
+}
+
+/// Kênh Zalo Bot: gửi tới MỘT người nhận (chatId). Zalo không nhận HTML nên gửi
+/// bản văn thuần.
+SendResult postToZalo(const Item& item, const String& chatId) {
     WiFiClientSecure client;
     client.setInsecure();
     client.setTimeout(10);
 
-    // Zalo không nhận HTML -> gửi bản văn thuần.
-    const String text = stripHtml(item.text);
-
     JsonDocument body;
-    body["recipient"]["user_id"]      = ZALO_USER_ID;
-    body["message"]["text"]           = text;
+    body["chat_id"] = chatId;
+    body["text"]    = zaloText(item.text);
     String payload;
     serializeJson(body, payload);
 
-    HTTPClient http;
-    http.setTimeout(12000);
-    if (!http.begin(client, "https://openapi.zalo.me/v3.0/oa/message/cs")) {
-        strlcpy(g_lastResult, "Zalo: khong mo duoc HTTPS", sizeof(g_lastResult));
-        return false;
-    }
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("access_token", ZALO_OA_TOKEN);
-    const int code = http.POST(payload);
-    const String resp = (code > 0) ? http.getString() : String();
-    http.end();
-
-    // Zalo trả HTTP 200; trong body có "error":0 nếu thành công.
-    if (code == 200 && resp.indexOf("\"error\":0") >= 0) {
+    String resp;
+    const int code = zaloCall(client, "sendMessage", payload, 12000, &resp);
+    client.stop();
+    if (code == 200) {
         strlcpy(g_lastResult, "Zalo: OK", sizeof(g_lastResult));
-        return true;
+        return SendResult::Ok;
     }
-    snprintf(g_lastResult, sizeof(g_lastResult), "Zalo HTTP %d %.40s", code, resp.c_str());
-    Serial.printf("[ZALO] Gui that bai: %s\n", g_lastResult);
-    return false;
+    const bool permanent = zaloPermanent(code);
+    snprintf(g_lastResult, sizeof(g_lastResult), "Zalo %.24s loi %d %.36s",
+             chatId.c_str(), code, resp.c_str());
+    Serial.printf("[ZL] Gui that bai%s: %s\n", permanent ? " (bo, khong thu lai)" : "", g_lastResult);
+    return permanent ? SendResult::GiveUp : SendResult::Retry;
 }
 
 // ---------------------------------------------------------------------------
@@ -479,9 +716,9 @@ void pollUpdatesOnce() {
         const int64_t chatId = upd["message"]["chat"]["id"] | (int64_t)0;
         if (!text[0]) continue;
 
-        // CHỈ trả lời đúng chat id đã khai trong secrets.h.
+        // CHỈ trả lời các chat id khai trong TELEGRAM_CHAT_ID (secrets.h).
         const String chatStr = String((long long)chatId);
-        if (chatStr != String(TELEGRAM_CHAT_ID)) {
+        if (!isFamilyChat(chatStr)) {
             Serial.printf("[TG] Bo qua tin tu chat la: %s\n", chatStr.c_str());
             continue;
         }
@@ -510,21 +747,214 @@ void pollUpdatesOnce() {
     g_primed = true;   // từ lần hỏi kế tiếp trở đi mới trả lời tin nhắn
 }
 
-/// Thử gửi một tin qua các kênh còn lại của nó. Trả về mặt nạ các kênh VẪN còn
-/// phải gửi sau lần thử này (0 = đã xong hết).
-uint8_t deliver(const Item& item) {
-    uint8_t stillPending = item.pending;
+// ---------------------------------------------------------------------------
+//  Chat hai chiều qua Zalo (task riêng, long polling)
+// ---------------------------------------------------------------------------
+//
+//  Mỗi lượt getUpdates, máy chủ Zalo giữ kết nối tối đa ZALO_POLL_TIMEOUT_S giây:
+//  có tin là trả về ngay (một tin mỗi lượt), hết giờ mà không có tin thì trả mã
+//  408. Task này chỉ ĐỌC trạng thái (qua g_replyBuilder) và gửi trả lời trực
+//  tiếp, không đụng tới hàng đợi cảnh báo.
 
-    if (stillPending & CH_TELEGRAM) {
-        if (postToTelegram(item)) stillPending &= ~CH_TELEGRAM;
+static_assert(ZALO_POLL_TIMEOUT_S <= 45,
+              "ZALO_POLL_TIMEOUT_S qua lon: thoi gian cho HTTP (toi da 60s) phai dai hon luot cho tin");
+
+/// Chuỗi id trong JSON của Zalo (thường là chuỗi hex; phòng khi là số).
+String jsonId(JsonVariantConst v) {
+    if (v.is<const char*>()) return String(v.as<const char*>());
+    if (v.is<int64_t>())     return String((long long)v.as<int64_t>());
+    return String();
+}
+
+/// Gửi một tin văn thuần tới chat Zalo (trả lời người nhà, không qua hàng đợi).
+void zaloReply(WiFiClientSecure& client, const String& chatId, const String& text) {
+    JsonDocument body;
+    body["chat_id"] = chatId;
+    body["text"]    = text;
+    String payload;
+    serializeJson(body, payload);
+    String resp;
+    const int code = zaloCall(client, "sendMessage", payload, 12000, &resp);
+    if (code != 200) {
+        snprintf(g_zlPollResult, sizeof(g_zlPollResult), "tra loi loi %d %.32s", code, resp.c_str());
+        Serial.printf("[ZL] Tra loi %s that bai: %s\n", chatId.c_str(), g_zlPollResult);
     }
-    if (stillPending & CH_EMAIL) {
-        if (postToEmail(item)) stillPending &= ~CH_EMAIL;
+}
+
+/// Người lạ nhắn bot: báo mã chat của họ tối đa 1 lần / 10 phút mỗi người, để
+/// người nhà mới tự lấy được mã mà bot không thành vòng spam.
+bool shouldTellStranger(const String& chatId) {
+    const uint32_t now = millis();
+    uint8_t slot = 0;
+    for (uint8_t i = 0; i < 4; ++i) {
+        RefusedChat& r = g_zlRefused[i];
+        if (r.chat == chatId) {
+            if (now - r.at < 10UL * 60UL * 1000UL) return false;
+            r.at = now;
+            return true;
+        }
+        if (r.chat.length() == 0) { slot = i; break; }   // ô trống: các ô sau cũng trống
+        if ((int32_t)(r.at - g_zlRefused[slot].at) < 0) slot = i;   // ô cũ nhất
     }
-    if (stillPending & CH_ZALO) {
-        if (postToZaloOA(item)) stillPending &= ~CH_ZALO;
+    g_zlRefused[slot].chat = chatId;
+    g_zlRefused[slot].at   = now;
+    return true;
+}
+
+/// Xử lý MỘT tin Zalo.
+void handleZaloUpdate(WiFiClientSecure& client, JsonObject upd) {
+    JsonObject msg = upd["message"];
+    if (msg.isNull() || (msg["from"]["is_bot"] | false)) return;
+    const String chatId = jsonId(msg["chat"]["id"]);
+    if (chatId.length() == 0) return;
+    const String fromName = (const char*)(msg["from"]["display_name"] | "");
+    const String event    = (const char*)(upd["event_name"] | "");
+    const char*  text     = msg["text"] | "";
+
+    if (!isZaloFamilyChat(chatId)) {
+        Serial.printf("[ZL] Tin tu chat chua duoc phep: %s (%s)\n", chatId.c_str(), fromName.c_str());
+        if (shouldTellStranger(chatId)) {
+            String s = "Xin lỗi, bot này chỉ phục vụ gia đình đã đăng ký.\nMã chat Zalo của anh/chị là: ";
+            s += chatId;
+            s += "\nNếu anh/chị là người nhà, hãy gửi mã này cho người cài đặt thiết bị để được thêm vào danh sách.";
+            zaloReply(client, chatId, s);
+        }
+        return;
     }
-    return stillPending;
+
+    // Mốc thời gian của Zalo tính bằng MILI giây. Tin nằm chờ quá lâu (thiết bị
+    // mất mạng, vừa bật lại) thì bỏ qua, không trả lời dồn một loạt tin cũ.
+    const int64_t dateMs = msg["date"] | (int64_t)0;
+    const time_t  nowS   = time(nullptr);
+    if (dateMs > 0 && nowS > 1600000000) {
+        const int64_t ageS = (int64_t)nowS - dateMs / 1000;
+        if (ageS > ZALO_STALE_S) {
+            Serial.printf("[ZL] Bo qua tin cu (%ld giay) tu %s\n", (long)ageS, chatId.c_str());
+            return;
+        }
+    }
+
+    // Ảnh, nhãn dán, hoặc tin Zalo không cho bot đọc nội dung
+    if (event != "message.text.received" || !text[0]) {
+        zaloReply(client, chatId,
+                  "Em mới đọc được tin nhắn chữ thôi ạ. Anh/chị gõ \"tình hình\" để hỏi, "
+                  "hoặc /hoitham <lời nhắn> để nhờ loa ở nhà nói giúp nhé.");
+        return;
+    }
+
+    FamilyMessage m;
+    m.text     = text;
+    m.lower    = m.text;
+    m.lower.toLowerCase();
+    m.fromName = fromName;
+    m.chatId   = chatId;
+    const String reply = g_replyBuilder(m);
+    if (reply.length()) zaloReply(client, chatId, zaloText(reply));
+}
+
+/// Một lượt hỏi tin Zalo. Trả về số ms nên nghỉ trước lượt sau (0 = hỏi tiếp ngay).
+uint32_t pollZaloOnce(WiFiClientSecure& client) {
+    char body[32];
+    snprintf(body, sizeof(body), "{\"timeout\":\"%lu\"}", (unsigned long)ZALO_POLL_TIMEOUT_S);
+    String resp;
+    const int code = zaloCall(client, "getUpdates", body, (ZALO_POLL_TIMEOUT_S + 10) * 1000UL, &resp);
+    if (code == 408) {                       // hết lượt chờ, không có tin mới
+        strlcpy(g_zlPollResult, "OK", sizeof(g_zlPollResult));
+        return 0;
+    }
+    if (code != 200) {
+        snprintf(g_zlPollResult, sizeof(g_zlPollResult), "getUpdates loi %d %.32s", code, resp.c_str());
+        if (code == 401 || code == 403 || code == 404) {
+            Serial.printf("[ZL] Zalo tu choi token (%d) -> kiem tra ZALO_BOT_TOKEN\n", code);
+            return 60000;                    // sai token: đừng hỏi dồn
+        }
+        return 5000;                         // mất mạng / máy chủ bận
+    }
+    strlcpy(g_zlPollResult, "OK", sizeof(g_zlPollResult));
+    JsonDocument doc;
+    if (deserializeJson(doc, resp)) return 1000;
+    // Zalo trả MỘT tin (object); vẫn nhận mảng phòng khi API đổi giống Telegram.
+    JsonVariant res = doc["result"];
+    if (res.is<JsonArray>()) {
+        for (JsonObject u : res.as<JsonArray>()) handleZaloUpdate(client, u);
+    } else if (res.is<JsonObject>()) {
+        handleZaloUpdate(client, res.as<JsonObject>());
+    }
+    return 0;
+}
+
+void zaloTask(void*) {
+    WiFiClientSecure client;   // giữ kết nối giữa các lượt (keep-alive), đỡ bắt tay HTTPS
+    client.setInsecure();
+    bool     leased  = false;
+    uint32_t pauseMs = 0;
+    for (;;) {
+        if (pauseMs) { vTaskDelay(pdMS_TO_TICKS(pauseMs)); pauseMs = 0; }
+
+        // Cần Wi-Fi và đồng hồ NTP (để nhận ra tin quá cũ) mới bắt đầu hỏi.
+        if (!g_replyBuilder || WiFi.status() != WL_CONNECTED || time(nullptr) < 1600000000) {
+            client.stop();
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            continue;
+        }
+
+        // Bật cờ "đang hỏi" TRƯỚC rồi mới xét quyền thuê, cùng trong spinlock:
+        // dashboard xin quyền đúng lúc này thì hoặc ESP32 thấy và nhường, hoặc
+        // ESP32 đã kịp bật cờ nên dashboard còn thấy "device" và chưa hỏi.
+        portENTER_CRITICAL(&g_leaseMux);
+        g_zlInFlight = true;
+        const bool leasedNow = zaloLeaseActiveLocked();
+        if (leasedNow) g_zlInFlight = false;
+        portEXIT_CRITICAL(&g_leaseMux);
+
+        if (leasedNow != leased) {
+            leased = leasedNow;
+            Serial.println(leased ? "[ZL] Dashboard nhan quyen doc tin Zalo"
+                                  : "[ZL] Het han dashboard -> ESP32 tu doc tin Zalo");
+            if (leased) client.stop();   // nhường hẳn: trả lại bộ nhớ của kết nối HTTPS
+        }
+        if (leased) { vTaskDelay(pdMS_TO_TICKS(1000)); continue; }
+
+        pauseMs = pollZaloOnce(client);
+        if (pauseMs) client.stop();
+
+        portENTER_CRITICAL(&g_leaseMux);
+        g_zlInFlight = false;
+        portEXIT_CRITICAL(&g_leaseMux);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+/// Thử gửi một tin qua các kênh / người nhận còn lại của nó, ghi kết quả thẳng
+/// vào it (pending, tgLeft, delivered). it.pending == 0 nghĩa là đã xong hết.
+void deliver(Item& it) {
+    if (it.pending & CH_TELEGRAM) {
+        // Gửi lần lượt theo thứ tự trong TELEGRAM_CHAT_ID: người đầu tiên nhận trước.
+        for (uint8_t i = 0; i < g_tgCount; ++i) {
+            const uint8_t bit = (uint8_t)(1u << i);
+            if (!(it.tgLeft & bit)) continue;
+            const SendResult r = postToTelegram(it, g_tgChats[i]);
+            if (r == SendResult::Ok) it.delivered = true;
+            if (r != SendResult::Retry) it.tgLeft &= (uint8_t)~bit;
+        }
+        if (it.tgLeft == 0) it.pending &= (uint8_t)~CH_TELEGRAM;
+    }
+    // Zalo ngay sau Telegram (hai ứng dụng chat người nhà hay xem nhất), email sau cùng.
+    if (it.pending & CH_ZALO) {
+        for (uint8_t i = 0; i < g_zlCount; ++i) {
+            const uint8_t bit = (uint8_t)(1u << i);
+            if (!(it.zlLeft & bit)) continue;
+            const SendResult r = postToZalo(it, g_zlChats[i]);
+            if (r == SendResult::Ok) it.delivered = true;
+            if (r != SendResult::Retry) it.zlLeft &= (uint8_t)~bit;
+        }
+        if (it.zlLeft == 0) it.pending &= (uint8_t)~CH_ZALO;
+    }
+    if (it.pending & CH_EMAIL) {
+        const SendResult r = postToEmail(it);
+        if (r == SendResult::Ok) it.delivered = true;
+        if (r != SendResult::Retry) it.pending &= (uint8_t)~CH_EMAIL;
+    }
 }
 
 void notifierTask(void*) {
@@ -564,27 +994,37 @@ void notifierTask(void*) {
                 strlcpy(g_lastResult, "chua co Wi-Fi", sizeof(g_lastResult));
                 nextTry = millis() + TELEGRAM_RETRY_MS;
             } else {
-                const uint8_t stillPending = deliver(head);
+                Item done = head;   // bản sao: gửi xong mới ghi kết quả lại vào hàng đợi
+                deliver(done);
                 Lock lk;
                 if (!g_queue.empty()) {
-                    if (stillPending == 0) {
-                        // Mọi kênh đã gửi xong -> bỏ tin khỏi hàng đợi
+                    if (done.pending == 0) {
+                        // Mọi kênh / người nhận đã xong -> bỏ tin khỏi hàng đợi
                         g_queue.pop_front();
-                        g_sent++;
-                        g_lastOk = millis();
                         nextTry = 0;
-                        Serial.printf("[TB] Da gui xong, con %u tin trong hang doi\n",
-                                      (unsigned)g_queue.size());
+                        if (done.delivered) {
+                            g_sent++;
+                            g_lastOk = millis();
+                            Serial.printf("[TB] Da gui xong, con %u tin trong hang doi\n",
+                                          (unsigned)g_queue.size());
+                        } else {
+                            // Mọi kênh đều lỗi vĩnh viễn: không tính là đã gửi (để
+                            // không đo nhầm "trễ cảnh báo"); lý do nằm ở lastResult.
+                            Serial.printf("[TB] Khong gui duoc toi ai, bo tin: %s\n", g_lastResult);
+                        }
                     } else {
-                        // Còn kênh lỗi -> đếm số lần thử. Quá ngưỡng thì BỎ tin để
-                        // một kênh hỏng vĩnh viễn (sai key, token hết hạn...) không
-                        // chặn mãi các cảnh báo té ngã / SOS phía sau trong hàng đợi.
+                        // Còn kênh / người nhận lỗi TẠM -> đếm số lần thử. Quá ngưỡng
+                        // thì BỎ tin để một kênh hỏng lâu (mất mạng...) không chặn mãi
+                        // các cảnh báo té ngã / SOS phía sau trong hàng đợi.
                         Item& front = g_queue.front();
-                        front.pending = stillPending;
+                        front.pending   = done.pending;
+                        front.tgLeft    = done.tgLeft;
+                        front.zlLeft    = done.zlLeft;
+                        front.delivered = done.delivered;
                         if (++front.tries >= MAX_TRIES_PER_ITEM) {
                             snprintf(g_lastResult, sizeof(g_lastResult),
                                      "bo tin sau %u lan loi (kenh con: 0x%02X)",
-                                     (unsigned)MAX_TRIES_PER_ITEM, (unsigned)stillPending);
+                                     (unsigned)MAX_TRIES_PER_ITEM, (unsigned)done.pending);
                             Serial.printf("[TB] %s\n", g_lastResult);
                             g_queue.pop_front();
                             nextTry = 0;
@@ -604,16 +1044,26 @@ void notifierTask(void*) {
 
 bool begin() {
     if (!g_mutex) g_mutex = xSemaphoreCreateMutex();
+    // Đầu tiên: trước loadQueue() và trước khi có task nào đọc danh sách người nhận
+    parseTelegramChats();
+    parseZaloChats();
     {
         Lock lk;
         loadQueue();
     }
 
     // In ra kênh nào đang bật để lúc demo biết ngay cần sửa secrets.h hay chưa.
-    Serial.printf("[TB] Kenh canh bao: Telegram=%s  Email=%s  Zalo=%s\n",
+    Serial.printf("[TB] Kenh canh bao: Telegram=%s  Zalo=%s  Email=%s\n",
                   telegramConfigured() ? "BAT" : "tat",
-                  emailConfigured()    ? "BAT" : "tat",
-                  zaloConfigured()     ? "BAT" : "tat");
+                  zaloConfigured()     ? "BAT" : "tat",
+                  emailConfigured()    ? "BAT" : "tat");
+    if (g_tgCount > 1)
+        Serial.printf("[TB] Telegram gui toi %u nguoi nhan\n", (unsigned)g_tgCount);
+    if (g_zlCount > 1)
+        Serial.printf("[TB] Zalo gui toi %u nguoi nhan\n", (unsigned)g_zlCount);
+    if (zaloTokenSet() && g_zlCount == 0)
+        Serial.println("[ZL] Da khai ZALO_BOT_TOKEN nhung chua co ZALO_CHAT_ID: nguoi nha nhan "
+                       "cho bot mot cau de nhan ma chat, roi dien vao secrets.h");
     if (enabledChannels() == 0)
         Serial.println("[TB] CANH BAO: chua bat kenh nao -> hay dien secrets.h");
 
@@ -621,6 +1071,16 @@ bool begin() {
     const bool ok = xTaskCreatePinnedToCore(notifierTask, "notifier", 12288,
                                             nullptr, 2, &g_task, 1) == pdPASS;
     if (!ok) Serial.println("[TB] LOI: khong tao duoc task gui tin");
+
+    // Task chat hai chiều Zalo: ưu tiên thấp nhất (1) và ghim core 0 để phần bắt
+    // tay HTTPS không tranh CPU với máy trạng thái, âm thanh, gửi cảnh báo ở core 1.
+    if (zaloPollingEnabled() && !g_zlTask) {
+        if (xTaskCreatePinnedToCore(zaloTask, "zalo", 12288, nullptr, 1, &g_zlTask, 0) != pdPASS) {
+            g_zlTask = nullptr;
+            strlcpy(g_zlPollResult, "khong tao duoc task", sizeof(g_zlPollResult));
+            Serial.println("[ZL] LOI: khong tao duoc task doc tin Zalo (thieu RAM?)");
+        }
+    }
     return ok;
 }
 
@@ -644,6 +1104,8 @@ bool send(const String& text) {
     it.ts      = time(nullptr);
     it.text    = text;
     it.pending = channels;
+    it.tgLeft  = telegramTargets(channels);
+    it.zlLeft  = zaloTargets(channels);
     g_queue.push_back(it);
     persistLocked();
     return true;
@@ -668,6 +1130,8 @@ bool sendOne(const String& text, uint8_t channelMask) {
     it.ts      = time(nullptr);
     it.text    = text;
     it.pending = channels;   // CHỈ gửi đúng kênh được chọn
+    it.tgLeft  = telegramTargets(channels);
+    it.zlLeft  = zaloTargets(channels);
     g_queue.push_back(it);
     persistLocked();
     return true;
@@ -687,9 +1151,19 @@ const char* channelsText() {
         strlcat(buf, name, sizeof(buf));
         first = false;
     };
-    if (telegramConfigured()) add("Telegram");
+    if (telegramConfigured()) {
+        char tg[24];
+        if (g_tgCount > 1) snprintf(tg, sizeof(tg), "Telegram (%u nguoi)", (unsigned)g_tgCount);
+        else               strlcpy(tg, "Telegram", sizeof(tg));
+        add(tg);
+    }
+    if (zaloConfigured()) {
+        char zl[24];
+        if (g_zlCount > 1) snprintf(zl, sizeof(zl), "Zalo (%u nguoi)", (unsigned)g_zlCount);
+        else               strlcpy(zl, "Zalo", sizeof(zl));
+        add(zl);
+    }
     if (emailConfigured())    add("Email");
-    if (zaloConfigured())     add("Zalo");
     if (first) strlcpy(buf, "chua bat kenh nao", sizeof(buf));
     return buf;
 }
@@ -712,5 +1186,28 @@ const char* telegramPoller() {
     if (!pollingEnabled()) return "off";
     return leaseActive() ? "dashboard" : "device";
 }
+
+void grantZaloLease(uint32_t seconds) {
+    if (seconds < 5)   seconds = 5;      // cùng mức kẹp với Telegram (xem trên)
+    if (seconds > 120) seconds = 120;
+    const uint32_t until = millis() + seconds * 1000UL;
+    portENTER_CRITICAL(&g_leaseMux);
+    g_zlLeaseUntil = until;
+    g_zlLeaseOn    = true;
+    portEXIT_CRITICAL(&g_leaseMux);
+}
+
+const char* zaloPoller() {
+    if (!zaloPollingEnabled() || !g_zlTask) return "off";
+    portENTER_CRITICAL(&g_leaseMux);
+    const bool leased = zaloLeaseActiveLocked();
+    const bool busy   = g_zlInFlight;
+    portEXIT_CRITICAL(&g_leaseMux);
+    // Chỉ báo "dashboard" khi ESP32 đã THẬT SỰ ngừng hỏi (xem notifier.h)
+    return (leased && !busy) ? "dashboard" : "device";
+}
+
+uint8_t     zaloChatCount()  { parseZaloChats(); return g_zlCount; }
+const char* zaloPollResult() { return g_zlPollResult; }
 
 }  // namespace Notifier

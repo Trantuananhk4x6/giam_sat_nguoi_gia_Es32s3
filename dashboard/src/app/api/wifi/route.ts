@@ -1,64 +1,64 @@
 /**
- * Thêm / xóa mạng Wi-Fi đã lưu trên thiết bị. Gộp hai thao tác vào một route cho
- * gọn:
- *   - POST   { ssid, pass } -> lưu + yêu cầu firmware kết nối
- *   - DELETE { ssid }       -> xóa mạng đã lưu
- * Cả hai đều đi qua máy chủ Next.js (tránh CORS) và gọi hàm tương ứng ở esp32.ts.
+ * Lưu / xóa mạng Wi-Fi trên thiết bị (đi qua máy chủ Next.js vì firmware không có CORS):
+ *   - POST   { ssid, pass, connect } -> lưu; connect=true thì chuyển sang mạng này ngay.
+ *            connect=false khi thiết bị đang có mạng: chỉ lưu. Riêng mạng ĐANG NỐI (đổi
+ *            mật khẩu) firmware luôn thử ngay, sai thì giữ mật khẩu cũ (rolledBack).
+ *   - DELETE { ssid }                -> xóa mạng đã lưu (hoặc ?ssid=...).
+ * Cả hai chỉ nhận JSON gửi từ chính trang dashboard (lib/same-origin.ts), khác -> 403.
+ * Lỗi firmware (400 sai dữ liệu, 404 không có mạng, 500 không ghi được bộ nhớ — chưa đổi
+ * gì, 507 đầy) được chuyển tiếp đúng mã kèm câu tiếng Việt của firmware; lỗi mạng / quá
+ * giờ -> 502.
  */
 import { NextResponse } from "next/server";
-import { friendlyError, wifiAdd, wifiRemove } from "@/lib/esp32";
+import { errorReply, wifiAdd, wifiRemove } from "@/lib/esp32";
+import { rejectCrossSite } from "@/lib/same-origin";
 import { getSettings } from "@/lib/store";
+import { passError, ssidError } from "@/lib/wifi-types";
 
 export const dynamic = "force-dynamic";
 
+type Body = Record<string, unknown> | null;
+
 export async function POST(req: Request) {
-  let ssid = "";
-  let pass = "";
-  try {
-    const body = (await req.json()) as { ssid?: string; pass?: string };
-    ssid = (body.ssid ?? "").trim();
-    pass = body.pass ?? "";
-  } catch {
-    ssid = "";
-  }
+  const denied = rejectCrossSite(req);
+  if (denied) return denied;
 
-  if (!ssid) {
-    return NextResponse.json({ ok: false, error: "Thiếu tên mạng (SSID)." }, { status: 400 });
-  }
+  const body = (await req.json().catch(() => null)) as Body;
+  // Không cắt khoảng trắng: SSID lấy từ danh sách quét phải gửi đúng nguyên văn.
+  const ssid = typeof body?.ssid === "string" ? body.ssid : "";
+  const pass = typeof body?.pass === "string" ? body.pass : "";
+  const connect = body?.connect === undefined ? true : body.connect === true || body.connect === 1;
 
-  const settings = await getSettings();
+  const bad = ssidError(ssid) ?? passError(pass);
+  if (bad) return NextResponse.json({ ok: false, error: bad }, { status: 400 });
+
+  const { esp32Host: host } = await getSettings();
   try {
-    await wifiAdd(settings.esp32Host, ssid, pass);
-    return NextResponse.json({ ok: true });
+    const r = await wifiAdd(host, ssid, pass, connect);
+    return NextResponse.json({ ok: true, connecting: r.connecting });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: friendlyError(err, settings.esp32Host) },
-      { status: 502 },
-    );
+    const e = errorReply(err, host);
+    return NextResponse.json({ ok: false, error: e.error }, { status: e.status });
   }
 }
 
 export async function DELETE(req: Request) {
-  let ssid = "";
-  try {
-    const body = (await req.json()) as { ssid?: string };
-    ssid = (body.ssid ?? "").trim();
-  } catch {
-    ssid = new URL(req.url).searchParams.get("ssid")?.trim() ?? "";
-  }
+  const denied = rejectCrossSite(req);
+  if (denied) return denied;
 
-  if (!ssid) {
-    return NextResponse.json({ ok: false, error: "Thiếu tên mạng (SSID)." }, { status: 400 });
-  }
+  const body = (await req.json().catch(() => null)) as Body;
+  const ssid =
+    typeof body?.ssid === "string" ? body.ssid : (new URL(req.url).searchParams.get("ssid") ?? "");
 
-  const settings = await getSettings();
+  const bad = ssidError(ssid);
+  if (bad) return NextResponse.json({ ok: false, error: bad }, { status: 400 });
+
+  const { esp32Host: host } = await getSettings();
   try {
-    await wifiRemove(settings.esp32Host, ssid);
+    await wifiRemove(host, ssid);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: friendlyError(err, settings.esp32Host) },
-      { status: 502 },
-    );
+    const e = errorReply(err, host);
+    return NextResponse.json({ ok: false, error: e.error }, { status: e.status });
   }
 }

@@ -74,12 +74,13 @@ export type Esp32Status = {
     lastCode: number;
   };
   /**
-   * Trạng thái Wi-Fi của thiết bị.
+   * Trạng thái Wi-Fi của thiết bị (chi tiết đầy đủ ở GET /api/wifi/state, xem lib/wifi-types.ts).
    *  - up: đang nối được một mạng Wi-Fi nhà (chế độ station).
+   *  - ssid / ip: "-" khi chưa nối.
    *  - saved: số mạng đã lưu trong firmware.
-   *  - portal: đang mở cổng cấu hình (captive portal) để nhập Wi-Fi.
-   *  - ap: đang phát Wi-Fi riêng (access point) cho điện thoại nối vào cấu hình.
-   * saved/portal/ap do firmware mới bổ sung nên để optional cho tương thích ngược.
+   *  - portal: đang mở Wi-Fi cấu hình (AP + captive portal) để nhập Wi-Fi.
+   *  - ap: TÊN (SSID) Wi-Fi cấu hình thiết bị đang phát; "" nếu không phát.
+   * Các trường optional do firmware mới bổ sung, để optional cho tương thích ngược.
    */
   wifi: {
     up: boolean;
@@ -88,7 +89,15 @@ export type Esp32Status = {
     ip: string;
     saved?: number;
     portal?: boolean;
-    ap?: boolean;
+    ap?: string;
+    phase?: import("./wifi-types").WifiPhase;
+    /** SSID đang thử nối ("" nếu không thử) */
+    trying?: string;
+    bars?: import("./wifi-types").WifiBars;
+    channel?: number;
+    apIp?: string;
+    apClients?: number;
+    attempt?: import("./wifi-types").WifiAttempt | null;
   };
   telegram: {
     pending: number;
@@ -97,6 +106,15 @@ export type Esp32Status = {
     channels?: string;
     /** Ai đang đọc tin Telegram: off | device | dashboard (firmware mới) */
     poller?: string;
+  };
+  /** Bot Zalo của firmware (firmware có Zalo Bot mới có trường này) */
+  zalo?: {
+    /** Ai đang đọc tin Zalo: off | device | dashboard */
+    poller?: string;
+    /** Số người nhận cảnh báo Zalo khai trong ZALO_CHAT_ID */
+    chats?: number;
+    /** Kết quả lượt hỏi tin Zalo gần nhất (dò lỗi token) */
+    last?: string;
   };
   /** Lời nhắn đang chờ phát ra loa (firmware mới) */
   say?: { pending: boolean };
@@ -208,6 +226,68 @@ export type Settings = {
   ttsVoice: string;
   /** Cho dashboard nhận quyền đọc tin Telegram khi đang chạy */
   telegramEnabled: boolean;
+  /** Cho dashboard nhận quyền đọc tin Zalo khi đang chạy */
+  zaloEnabled: boolean;
+  /**
+   * Tên người gửi in trước lời nhắn khi người cao tuổi nói với thiết bị
+   * "gửi cho Tuấn là …": người nhận thấy  Người thân: "…"
+   */
+  relayLabel: string;
+};
+
+/**
+ * Một người trong DANH BẠ NGƯỜI NHÀ. Người cao tuổi nói với thiết bị
+ * "gửi cho <tên> là <lời nhắn>" thì lời nhắn tới Telegram + Zalo + email của người này.
+ */
+export type Contact = {
+  id: string;
+  /** Tên gọi khi nói, ví dụ "Tuấn" */
+  name: string;
+  /** Cách gọi khác cũng nhận ra, ví dụ "con trai", "anh Hai" */
+  aliases: string[];
+  /** Mã chat Telegram (số; nhóm là số âm). Rỗng = không gửi Telegram */
+  telegramChatId: string;
+  /** Mã chat Zalo Bot (chuỗi chữ số hex, bot báo khi người đó nhắn). Rỗng = không gửi Zalo */
+  zaloChatId: string;
+  /** Rỗng = không gửi email */
+  email: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/** Kết quả gửi lời nhắn qua MỘT kênh */
+export type Delivery = {
+  channel: "telegram" | "zalo" | "email";
+  /** Mã chat / địa chỉ email đã gửi tới */
+  target: string;
+  ok: boolean;
+  /** Lý do lỗi dễ hiểu (null khi gửi được) */
+  error: string | null;
+  /** message_id Telegram (số) / Zalo (chuỗi) trả về, để nhận ra tin trả lời của người nhà */
+  messageId?: number | string | null;
+};
+
+export type RelayStatus =
+  | "da-gui" // mọi kênh đều gửi được
+  | "gui-mot-phan" // gửi được ít nhất một kênh, có kênh lỗi
+  | "loi" // không kênh nào gửi được
+  | "khong-co-ten" // tên không có trong danh bạ
+  | "trung-ten" // nhiều người trong danh bạ có tên giống nhau
+  | "thieu-loi-nhan" // nói tên nhưng không nói nội dung
+  | "chua-co-kenh" // người nhận chưa khai Telegram / Zalo / email
+  | "qua-nhieu"; // gửi dồn dập quá giới hạn chống spam
+
+/** Lời nhắn người cao tuổi gửi đi (kèm trong Interaction có kind = "gui-di") */
+export type RelayInfo = {
+  /** Tên người nhận (theo danh bạ, hoặc tên nghe được nếu không có trong danh bạ) */
+  to: string;
+  contactId: string | null;
+  /** Lời nhắn đúng nguyên văn đã nghe được */
+  message: string;
+  /** Nguyên văn tin đã gửi, ví dụ  Người thân: "tối nay gọi cho mẹ lúc 8h nhé" */
+  sent: string;
+  status: RelayStatus;
+  delivery: Delivery[];
 };
 
 /** Kết quả gửi lời nhắn xuống loa ESP32 */
@@ -216,16 +296,23 @@ export type SpeakStatus =
   | "loa-ban" // loa đang phát thứ khác, đã thử lại mà vẫn bận
   | "dang-canh-bao" // thiết bị đang xử lý nghi ngã / khẩn cấp
   | "mat-ket-noi" // không liên lạc được ESP32
-  | "qua-cu" // tin Telegram tới quá muộn, không đọc nữa
+  | "qua-cu" // tin Telegram / Zalo tới quá muộn, không đọc nữa
   | "loi";
 
-/** Một lượt người nhà tương tác với trợ lý (Telegram hoặc trang web) */
+/**
+ * Một lượt tương tác được ghi nhật ký: người nhà nhắn/hỏi (Telegram, Zalo, web)
+ * hoặc người cao tuổi nói với thiết bị để gửi lời nhắn cho người nhà.
+ */
 export type Interaction = {
   id: string;
   at: number;
-  channel: "telegram" | "web";
-  /** hoitham = nhắn qua loa; hoi = hỏi tình hình; lenh = lệnh nhanh; tu-choi = người lạ */
-  kind: "hoitham" | "hoi" | "lenh" | "tu-choi";
+  /** thiet-bi = người cao tuổi nói với ESP32 (mic) */
+  channel: "telegram" | "zalo" | "web" | "thiet-bi";
+  /**
+   * hoitham = nhắn qua loa; hoi = hỏi tình hình; lenh = lệnh nhanh; tu-choi = người lạ;
+   * gui-di = người cao tuổi nhờ thiết bị gửi lời nhắn cho người nhà
+   */
+  kind: "hoitham" | "hoi" | "lenh" | "tu-choi" | "gui-di";
   from: string;
   chatId: string | null;
   text: string;
@@ -235,10 +322,12 @@ export type Interaction = {
   speak: SpeakStatus | null;
   /** Câu trả lời có dùng AI hay chỉ là tóm tắt tự động */
   ai: boolean;
+  /** Chỉ có với kind = "gui-di" */
+  relay?: RelayInfo | null;
 };
 
-/** Trạng thái bot Telegram phía dashboard (hiện ở trang Cài đặt) */
-export type TelegramBotInfo = {
+/** Trạng thái một bot chat hai chiều phía dashboard (Telegram / Zalo, hiện ở trang Cài đặt) */
+export type ChatBotInfo = {
   configured: boolean;
   enabled: boolean;
   /** off | cho-thiet-bi | dang-doc | xung-dot | loi-token | loi-mang | firmware-cu */
@@ -249,6 +338,10 @@ export type TelegramBotInfo = {
   lastUpdateAt: number;
   handled: number;
 };
+
+/** Giữ tên cũ cho các chỗ đang dùng */
+export type TelegramBotInfo = ChatBotInfo;
+export type ZaloBotInfo = ChatBotInfo;
 
 /** Gói dữ liệu trả về cho trang giám sát, chỉ cần 1 lần gọi mỗi chu kỳ */
 export type LivePayload = {

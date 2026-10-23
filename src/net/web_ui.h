@@ -8,11 +8,13 @@
  *    trang tự chuyển sang hỏi định kỳ qua /api/status nên vẫn hoạt động.
  *  - Các đường dẫn API:
  *      GET  /api/status      trạng thái hiện tại (JSON). Thêm ?tg=<giây> (5..120)
- *                            để dashboard thuê quyền đọc tin Telegram.
+ *                            để dashboard thuê quyền đọc tin Telegram, ?zl=<giây>
+ *                            để thuê quyền đọc tin Zalo (dùng được cùng lúc).
  *      GET  /api/events      danh sách sự kiện gần nhất (JSON)
  *      GET  /api/export.csv  toàn bộ nhật ký dạng CSV (mở bằng Excel)
  *      POST /api/action      thao tác: iamok | sos | simfall | present_on |
- *                            present_off | testvoice | testtg | clearlog |
+ *                            present_off | testvoice | testtg | testmail |
+ *                            testzalo | clearlog |
  *                            assistant (kích hoạt trợ lý hội thoại)
  *      POST /api/say?from=<tên>  thân = nguyên file WAV (PCM 16-bit mono 16 kHz,
  *                            tối đa SAY_MAX_BYTES) để loa đọc lời nhắn người nhà.

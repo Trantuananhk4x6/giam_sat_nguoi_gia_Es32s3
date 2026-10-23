@@ -1,0 +1,504 @@
+/* ==========================================================================
+   Trang /wifi — phần riêng: thẻ trạng thái, cột sóng, dòng mạng, huy hiệu,
+   biểu mẫu mật khẩu, spinner. Lớp chung (card, row, btns, b-main, b-gray,
+   okbox, badbox, warnbox, sub…) lấy từ app/globals.css.
+   ========================================================================== */
+
+/* Viền focus navy dày: rõ hơn viền vàng mặc định khi nằm trên nền trắng. */
+.page :where(button, a, input, summary):focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------ thẻ trạng thái --- */
+.status {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 20px 22px;
+  border-left: 5px solid var(--brand);
+}
+.toneOk { border-left-color: var(--ok); }
+.toneWarn { border-left-color: var(--warn); }
+.toneBad { border-left-color: var(--bad); }
+
+.statusIcon {
+  flex: none;
+  width: 58px;
+  height: 58px;
+  border-radius: 17px;
+  display: grid;
+  place-items: center;
+  background: var(--brand-soft);
+  color: var(--brand-2);
+}
+.toneOk .statusIcon { background: var(--ok-soft); color: #0c6b49; }
+.toneWarn .statusIcon { background: var(--warn-soft); color: #8a5a07; }
+.toneBad .statusIcon { background: var(--bad-soft); color: #a31f2b; }
+
+.statusBody {
+  flex: 1;
+  min-width: 0;
+}
+/* .card h2 của globals là chữ nhỏ in hoa; giữ kiểu đó, chỉ bớt khoảng cách dưới. */
+.status .statusHead {
+  margin: 0 0 4px;
+}
+.statusTitle {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.toneOk .statusTitle { color: #0c6b49; }
+.toneBad .statusTitle { color: #a31f2b; }
+.statusDetail {
+  margin: 6px 0 0;
+  color: var(--dim);
+  font-size: 14px;
+}
+.statusDetail small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12.5px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chip a {
+  color: var(--brand);
+  border-radius: 4px;
+}
+/* Tạm dừng tự nối vì có người dùng trang cấu hình trên AP */
+.pausedNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 8px 11px;
+  border: 1px solid #f3c56a;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: #8a5a07;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.pausedNote svg {
+  flex: none;
+  margin-top: 2px;
+}
+/* Dòng thông số kỹ thuật nhỏ (thời gian vòng lặp Wi-Fi) */
+.tech {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 10px 0 0;
+  color: var(--dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.tech svg {
+  flex: none;
+}
+
+/* ------------------------------------------------------ khung kết quả ---- */
+.live {
+  /* Luôn có trong DOM để trình đọc màn hình bắt được thay đổi; rỗng thì cao 0. */
+  margin: 0;
+}
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.noticeIcon {
+  flex: none;
+  margin-top: 1px;
+}
+.noticeBody {
+  flex: 1;
+  min-width: 0;
+}
+.noticeBody p {
+  margin: 4px 0 0;
+}
+.noticeTitle {
+  display: block;
+  font-size: 14.5px;
+  overflow-wrap: anywhere;
+}
+.hint {
+  font-size: 13px;
+}
+.elapsed {
+  margin-left: 8px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.infoBox {
+  background: var(--brand-soft);
+  border: 1px solid #cdd7ef;
+  color: var(--brand-2);
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  margin-bottom: 14px;
+}
+button.close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+}
+button.close:hover:not(:disabled) {
+  background: rgba(16, 33, 72, 0.08);
+  filter: none;
+  transform: none;
+}
+
+/* ------------------------------------------------------------- spinner --- */
+.spin {
+  animation: wifiSpin 0.9s linear infinite;
+}
+@keyframes wifiSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ------------------------------------------------------------ cột sóng --- */
+.bars {
+  flex: none;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  width: 22px;
+  height: 18px;
+}
+.bars > span {
+  flex: 1;
+  border-radius: 1.5px;
+  background: #c3cbdb;
+}
+.bars > span:nth-child(1) { height: 30%; }
+.bars > span:nth-child(2) { height: 55%; }
+.bars > span:nth-child(3) { height: 78%; }
+.bars > span:nth-child(4) { height: 100%; }
+/* Màu vạch sáng đạt tương phản >= 3:1 trên nền trắng; mức sóng còn có chữ đi kèm. */
+.barsGood > .on { background: var(--ok); }
+.barsMid > .on { background: #b86e00; }
+.barsLow > .on { background: var(--bad); }
+.barsSm {
+  width: 17px;
+  height: 14px;
+}
+
+/* ------------------------------------------------------ danh sách mạng --- */
+.scanMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 12px;
+}
+.netList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+button.net {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--fg);
+  font-weight: 500;
+  text-align: left;
+}
+button.net:hover:not(:disabled) {
+  background: var(--brand-soft);
+  border-color: #cdd7ef;
+  filter: none;
+  transform: none;
+}
+button.netOpen,
+button.netOpen:hover:not(:disabled) {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.netMain {
+  min-width: 0;
+}
+.netTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.netName {
+  font-weight: 700;
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.netMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chev {
+  flex: none;
+  color: var(--dim);
+  transition: transform 0.15s;
+}
+.chevOpen {
+  transform: rotate(180deg);
+}
+.panel {
+  border: 1px solid var(--brand);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  padding: 14px;
+  background: #fbfcff;
+}
+.panelText {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--dim);
+}
+.empty {
+  margin: 4px 0 0;
+  padding: 16px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------------ huy hiệu --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badgeOk { background: var(--ok-soft); color: #0c6b49; border-color: #9bd9bf; }
+.badgeBad { background: var(--bad-soft); color: #a31f2b; border-color: #f3a3ab; }
+.badgeWarn { background: var(--warn-soft); color: #8a5a07; border-color: #f3c56a; }
+.badgeNavy { background: var(--brand-soft); color: var(--brand-2); border-color: #cdd7ef; }
+.badgeGray { background: var(--bg2); color: var(--dim); border-color: var(--line); }
+
+/* --------------------------------------------------------- mạng đã lưu --- */
+.savedList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.savedItem {
+  padding: 11px 0;
+  border-bottom: 1px solid #f1f3f8;
+}
+.savedItem:first-child {
+  padding-top: 0;
+}
+.savedItem:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.savedTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.savedActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+.inlineForm {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcff;
+}
+
+/* ------------------------------------------------------------ biểu mẫu --- */
+.form {
+  display: grid;
+  gap: 12px;
+}
+.formNote {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+.field {
+  display: grid;
+  gap: 5px;
+}
+.field label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.passRow {
+  display: flex;
+  gap: 8px;
+}
+.passRow input {
+  flex: 1;
+  min-width: 0;
+}
+button.eye {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--fg);
+  font-size: 13px;
+}
+button.eye:hover:not(:disabled) {
+  background: var(--bg2);
+  filter: none;
+  transform: none;
+}
+.fieldHint {
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.fieldErr {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: #a31f2b;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.fieldErr svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* ------------------------------------------------- mạng ẩn / nhập tay --- */
+.manual {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.manual summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+  color: var(--brand-2);
+}
+.manual summary::-webkit-details-marker {
+  display: none;
+}
+.manual summary svg {
+  transition: transform 0.15s;
+}
+.manual[open] summary svg {
+  transform: rotate(180deg);
+}
+.manual .form {
+  margin-top: 12px;
+}
+
+/* --------------------------------------------- Wi-Fi cấu hình / hướng dẫn --- */
+.apNote {
+  margin: 10px 0 12px;
+}
+.guide ol {
+  margin: 8px 0 12px;
+}
+
+@media (max-width: 560px) {
+  .status { gap: 14px; padding: 16px; }
+  .statusIcon { width: 46px; height: 46px; border-radius: 14px; }
+  .statusTitle { font-size: 19px; }
+  .passRow { flex-wrap: wrap; }
+  .passRow input { flex-basis: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+  .chev,
+  .manual summary svg { transition: none; }
+}

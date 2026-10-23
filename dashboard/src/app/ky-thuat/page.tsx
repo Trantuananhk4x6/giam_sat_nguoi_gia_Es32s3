@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import EventTable from "@/components/EventTable";
@@ -167,11 +168,13 @@ export default function KyThuatPage() {
           </div>
         </div>
 
-        {/* ----------------------------------- Mạng & Telegram ---------------- */}
+        {/* ------------------------------- Mạng & kênh báo tin ---------------- */}
         <div className="card">
-          <h2>Mạng &amp; Telegram</h2>
+          <h2>Mạng &amp; kênh báo tin</h2>
           <div className="row">
-            <span>Wi-Fi của ESP32</span>
+            <span>
+              Wi-Fi của ESP32 · <Link href="/wifi">Quản lý Wi-Fi →</Link>
+            </span>
             <b style={{ color: st?.wifi.up ? "var(--ok)" : "var(--bad)" }}>
               {st ? (st.wifi.up ? "Đã kết nối" : "Mất kết nối") : "—"}
             </b>
@@ -189,9 +192,22 @@ export default function KyThuatPage() {
             <b>{st?.wifi.ip ?? "—"}</b>
           </div>
           <div className="row">
+            <span>Kênh đang bật</span>
+            <b>{st?.telegram.channels ?? "—"}</b>
+          </div>
+          <div className="row">
             <span>Tin đã gửi / đang chờ</span>
             <b>{st ? `${st.telegram.sent} / ${st.telegram.pending}` : "—"}</b>
           </div>
+          {st?.zalo && st.zalo.poller !== "off" && (
+            <div className="row">
+              <span>Đọc tin Zalo</span>
+              <b>
+                {st.zalo.poller === "dashboard" ? "dashboard (AI)" : "ESP32"}
+                {st.zalo.last && st.zalo.last !== "OK" ? ` · ${st.zalo.last}` : ""}
+              </b>
+            </div>
+          )}
           <div className="row">
             <span>Kết quả gửi gần nhất</span>
             <b>{st?.telegram.last ?? "—"}</b>
@@ -457,6 +473,11 @@ export default function KyThuatPage() {
             <button className="b-gray" disabled={!data?.online} onClick={() => run("testtg")}>
               Gửi Telegram thử
             </button>
+            {(st?.zalo?.chats ?? 0) > 0 && (
+              <button className="b-gray" disabled={!data?.online} onClick={() => run("testzalo")}>
+                Gửi Zalo thử
+              </button>
+            )}
             <button className="b-gray" onClick={() => location.assign("/api/export?kind=events")}>
               Tải nhật ký Excel
             </button>

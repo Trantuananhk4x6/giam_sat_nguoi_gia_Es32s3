@@ -1,9 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Settings, TelegramBotInfo } from "@/lib/types";
+import type { Settings, TelegramBotInfo, ZaloBotInfo } from "@/lib/types";
 
-type SettingsRes = Settings & { bot: TelegramBotInfo; voices: Record<string, string> };
+type ZaloRes = ZaloBotInfo & { firmwareOnline: boolean; firmwareChats: number | null; firmwarePoller: string | null };
+type SettingsRes = Settings & { bot: TelegramBotInfo; zalo?: ZaloRes; voices: Record<string, string> };
+
+/** Thiết bị (firmware) có tự gửi cảnh báo qua Zalo không, nói bằng lời thường */
+function firmwareZaloText(z: ZaloRes | undefined): string {
+  if (!z || !z.firmwareOnline) return "chưa liên lạc được thiết bị";
+  if (z.firmwarePoller === null) return "firmware chưa hỗ trợ Zalo — nạp firmware mới";
+  if ((z.firmwareChats ?? 0) > 0) return `${z.firmwareChats} người`;
+  if (z.firmwarePoller === "off") return "chưa khai ZALO_BOT_TOKEN trong secrets.h";
+  return "chưa khai ZALO_CHAT_ID trong secrets.h";
+}
 
 const BOT_STATE: Record<string, string> = {
   "dang-doc": "Đang trả lời tin nhắn",
@@ -22,6 +32,7 @@ export default function CaiDatPage() {
   const [elderCall, setElderCall] = useState("");
   const [voice, setVoice] = useState("vi-VN-HoaiMyNeural");
   const [tgOn, setTgOn] = useState(true);
+  const [zlOn, setZlOn] = useState(true);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +50,7 @@ export default function CaiDatPage() {
       setElderCall(j.elderCall ?? "");
       setVoice(j.ttsVoice ?? "vi-VN-HoaiMyNeural");
       setTgOn(j.telegramEnabled !== false);
+      setZlOn(j.zaloEnabled !== false);
     });
     const t = setInterval(() => void load(), 5000);
     return () => clearInterval(t);
@@ -59,13 +71,14 @@ export default function CaiDatPage() {
   }
 
   const bot = s?.bot;
+  const zalo = s?.zalo;
 
   return (
     <>
       <div className="page-head">
         <div>
           <h1>Cài đặt</h1>
-          <p className="sub">Kết nối thiết bị, cách xưng hô, giọng đọc và bot Telegram hai chiều.</p>
+          <p className="sub">Kết nối thiết bị, cách xưng hô, giọng đọc và bot Telegram / Zalo hai chiều.</p>
         </div>
       </div>
       {msg && <div className={msg.ok ? "okbox" : "badbox"}>{msg.text}</div>}
@@ -137,10 +150,48 @@ export default function CaiDatPage() {
         </div>
 
         <div className="card full">
+          <div className="card-head">
+            <h2>Bot Zalo hai chiều</h2>
+            {zalo && (
+              <span className={`st-pill ${!zalo.configured || zalo.state === "off" ? "" : zalo.state === "dang-doc" ? "ok" : "warn"}`}>
+                {zalo.configured ? (BOT_STATE[zalo.state] ?? zalo.state) : "Chưa cài"}
+              </span>
+            )}
+          </div>
+          <label className="toggle" style={{ marginBottom: 12 }}>
+            <input type="checkbox" checked={zlOn} onChange={(e) => { setZlOn(e.target.checked); void save({ zaloEnabled: e.target.checked }); }} />
+            Cho dashboard trả lời tin nhắn Zalo (AI + đọc lời nhắn ra loa)
+          </label>
+          <div className="row"><span>Bot</span><b>{zalo?.botName ?? (zalo?.configured ? "đang kết nối…" : "chưa khai token")}</b></div>
+          <div className="row"><span>Chat được phép</span><b>{zalo?.allowedChats.length ? zalo.allowedChats.join(", ") : "chưa khai"}</b></div>
+          <div className="row"><span>Thiết bị gửi cảnh báo Zalo tới</span><b>{firmwareZaloText(zalo)}</b></div>
+          <div className="row"><span>Tin đã xử lý (từ lúc bật máy chủ)</span><b>{zalo?.handled ?? 0}</b></div>
+          {zalo?.configured && zalo.detail && <div className="sub" style={{ marginTop: 8 }}>{zalo.detail}</div>}
+          <ol className="howto" style={{ marginTop: 12 }}>
+            <li>
+              Trên điện thoại, mở Zalo, tìm <b>Zalo Bot Manager</b> rồi bấm <b>Tạo bot</b> (tên bot phải bắt đầu bằng
+              “Bot”, ví dụ “Bot OALPHA”). Zalo nhắn <b>Bot Token</b> về chính tài khoản của anh/chị.
+            </li>
+            <li>
+              Khai <code>ZALO_BOT_TOKEN</code> trong <code>dashboard/.env.local</code>, và trong <code>include/secrets.h</code>{" "}
+              để thiết bị tự gửi cảnh báo qua Zalo. Khởi động lại dashboard, nạp lại firmware.
+            </li>
+            <li>
+              Mỗi người nhà mở bot trên Zalo, nhắn một câu bất kỳ: bot trả lời kèm <b>mã chat</b>. Ghi các mã đó vào{" "}
+              <code>ZALO_CHAT_ID</code> ở cả hai nơi (nhiều người cách nhau dấu phẩy).
+            </li>
+          </ol>
+          <div className="sub" style={{ marginTop: 8 }}>
+            Đây là Zalo Bot chính thức của Zalo, tạo bằng tài khoản Zalo cá nhân, miễn phí, không cần Zalo OA doanh
+            nghiệp. Khi máy tính tắt, ESP32 tự trả lời Zalo như cũ (không có AI).
+          </div>
+        </div>
+
+        <div className="card full">
           <h2>Lưu ý quan trọng khi bảo vệ</h2>
           <p className="sub" style={{ margin: 0 }}>
             Dashboard <b>không nằm trong đường đi của cảnh báo</b>. Khi phát hiện té ngã, chính ESP32 phát loa hỏi
-            thăm và gửi Telegram cho người thân — tắt laptop thì hệ thống an toàn vẫn chạy nguyên vẹn. Dashboard lo
+            thăm và gửi Telegram / Zalo cho người thân — tắt laptop thì hệ thống an toàn vẫn chạy nguyên vẹn. Dashboard lo
             phần lưu lịch sử dài hạn, số liệu thực nghiệm và trợ lý AI cho người nhà. Dữ liệu lưu ở{" "}
             <code>dashboard/data/</code> (sao lưu bằng cách copy cả thư mục).
           </p>

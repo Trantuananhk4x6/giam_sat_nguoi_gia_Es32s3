@@ -8,8 +8,10 @@
 #include "audio.h"
 #include "assistant.h"
 #include "fall_model.h"
+#include "nn_model.h"
 #include "rf_remote.h"
 #include "wifi_mgr.h"
+#include "wifi_portal_page.h"   // WIFI_PORTAL_HTML: trang cấu hình Wi-Fi nhúng sẵn trong firmware
 
 #include <WiFi.h>
 #include <LittleFS.h>
@@ -115,6 +117,18 @@ String statusJson() {
     jm["window"] = FallModel::WINDOW_SIZE;
     jm["periodMs"] = FEATURE_PERIOD_MS;
 
+    // Ket qua hai mang no-ron nho (xem src/core/nn_model.h). Manh hon hoi quy
+    // logistic o tren nhieu nhung van chay tren chinh ESP32.
+    JsonObject jn = doc["nn"].to<JsonObject>();
+    jn["ready"]       = r.nnReady;
+    jn["fall"]        = r.nnFall;
+    jn["prob"]        = r.nnProb;
+    jn["posture"]     = r.nnPosture;
+    jn["postureName"] = String(NnModel::postureName(r.nnPosture));
+    jn["postureProb"] = r.nnPostureProb;
+    jn["floorProb"]   = r.nnFloorProb;
+    jn["info"]        = String(NnModel::info());
+
     // Cau hinh dang nap trong firmware. Dashboard doc de (1) biet do tre xac nhan
     // nga ma gan nhan dung cho du lieu huan luyen, (2) canh bao neu nguoi do khai
     // chieu cao / do nhay khac voi firmware thuc te.
@@ -146,16 +160,10 @@ String statusJson() {
     }
     ja["state"] = asState;
 
-    JsonObject jw = doc["wifi"].to<JsonObject>();
-    const bool up = WiFi.status() == WL_CONNECTED;
-    jw["up"]   = up;
-    // SSID đang nối THẬT (không còn là hằng WIFI_SSID). Khi chưa nối thì trả "-".
-    jw["ssid"]   = up ? WiFi.SSID() : String("-");
-    jw["rssi"]   = up ? WiFi.RSSI() : 0;
-    jw["ip"]     = up ? WiFi.localIP().toString() : String("-");
-    jw["saved"]  = (uint32_t)WifiMgr::count();     // số mạng đã lưu trong NVS
-    jw["portal"] = WifiMgr::portalActive();        // đang ở chế độ AP cấu hình?
-    jw["ap"]     = String(WifiMgr::apSsid());      // tên AP (rỗng nếu không bật)
+    // Khối Wi-Fi: giữ trường cũ { up, ssid ("-"), rssi, ip ("-"), saved, portal, ap }
+    // và thêm { phase, trying, bars, channel, apIp, apClients, attempt } (API Wi-Fi v2).
+    // Lấy từ bản chụp của WifiMgr dưới khóa, không gọi thẳng driver từ task web.
+    WifiMgr::fillStatus(doc["wifi"].to<JsonObject>());
 
     JsonObject jt = doc["telegram"].to<JsonObject>();
     jt["pending"]  = Notifier::pending();
@@ -165,6 +173,13 @@ String statusJson() {
     // Bên nào đang đọc tin Telegram: "off" | "dashboard" (đang thuê qua ?tg=) |
     // "device". Dashboard chỉ nên gọi getUpdates khi thấy "dashboard".
     jt["poller"]   = Notifier::telegramPoller();
+
+    // Zalo Bot: tương tự, thuê qua ?zl=. "dashboard" chỉ hiện khi ESP32 đã ngừng
+    // hẳn lượt chờ tin (Zalo không trả lại tin đã giao cho bên kia).
+    JsonObject jz = doc["zalo"].to<JsonObject>();
+    jz["poller"] = Notifier::zaloPoller();
+    jz["chats"]  = Notifier::zaloChatCount();
+    jz["last"]   = Notifier::zaloPollResult();
 
     JsonObject js = doc["stats"].to<JsonObject>();
     js["suspects"]  = s.suspects;
@@ -204,6 +219,15 @@ void onWsEvent(AsyncWebSocket*, AsyncWebSocketClient* client, AwsEventType type,
 
 void handleAction(AsyncWebServerRequest* request) {
     if (blocked(request)) return;
+    // Chong gia mao yeu cau tu trang la (CSRF): bat buoc header "X-OALPHA" giong cac
+    // lenh ghi Wi-Fi. The <img> / form tu submit cua trang la khong dat duoc header
+    // tuy bien; fetch kem header nay thi trinh duyet phai preflight ma firmware khong
+    // tra CORS nen bi chan. Chi xet header CO MAT.
+    if (!request->hasHeader("X-OALPHA")) {
+        request->send(403, "application/json",
+                      "{\"ok\":false,\"err\":\"Thieu header X-OALPHA (chong gia mao CSRF)\"}");
+        return;
+    }
     String name;
     if (request->hasParam("name"))             name = request->getParam("name")->value();
     else if (request->hasParam("name", true))  name = request->getParam("name", true)->value();
@@ -395,9 +419,208 @@ void onSayRequest(AsyncWebServerRequest* request) {
     request->send(202, "application/json", "{\"ok\":true}");
 }
 
+// ---------------------------------------------------------------------------
+//  Wi-Fi: cổng cấu hình (captive portal) + API Wi-Fi v2
+// ---------------------------------------------------------------------------
+//  Các handler ở đây CHỈ đặt cờ yêu cầu và đọc trạng thái qua WifiMgr; mọi lệnh
+//  điều khiển driver Wi-Fi chạy trong loop(), nên task web không bao giờ bị chặn
+//  bởi việc quét hay nối mạng.
+
+constexpr const char* JSON_UTF8 = "application/json; charset=utf-8";
+
+/// Trang gợi ý khi LittleFS chưa có giao diện (quên chạy uploadfs).
+const char NO_UI_HTML[] =
+    "<!doctype html><html lang=vi><meta charset=utf-8>"
+    "<meta name=viewport content='width=device-width,initial-scale=1'>"
+    "<title>Chưa nạp giao diện web</title>"
+    "<body style='font-family:system-ui,sans-serif;max-width:36em;margin:2em auto;padding:0 1em'>"
+    "<h2>Chưa nạp giao diện web…</h2>"
+    "<p>Hãy chạy lệnh <code>pio run -t uploadfs</code> để nạp thư mục <code>data/</code> vào LittleFS.</p>"
+    "<p>Trong lúc chờ, vẫn cấu hình Wi-Fi được tại <a href='/wifi'>trang Wi-Fi</a>.</p>"
+    "</body></html>";
+
+/// Yêu cầu đến từ phía AP cấu hình (điện thoại đang nối thẳng vào Wi-Fi do thiết bị phát)?
+bool portalSide(AsyncWebServerRequest* request) {
+    if (!WifiMgr::portalActive()) return false;
+    AsyncClient* c = request->client();
+    return c != nullptr && c->localIP() == WifiMgr::apIp();
+}
+
+/// Host là của chính thiết bị (IP AP, tên mDNS)? Bỏ ":cổng", không phân biệt hoa thường.
+bool isOwnHost(const String& hostHeader) {
+    String h = hostHeader;
+    const int colon = h.indexOf(':');
+    if (colon >= 0) h.remove(colon);
+    h.trim();
+    if (h.isEmpty()) return true;
+    if (h.equalsIgnoreCase(WifiMgr::apIp().toString())) return true;
+    return h.equalsIgnoreCase(HOSTNAME) || h.equalsIgnoreCase(HOSTNAME ".local");
+}
+
+void redirectToPortal(AsyncWebServerRequest* request) {
+    String url = "http://";
+    url += WifiMgr::apIp().toString();
+    url += "/";
+    request->redirect(url);
+}
+
+/**
+ * Bắt MỌI yêu cầu từ phía AP có Host lạ (connectivitycheck.gstatic.com,
+ * captive.apple.com, www.msftconnecttest.com...) rồi chuyển về trang cấu hình.
+ * Nhờ DNS của WifiMgr trả mọi tên miền về IP của AP, điện thoại tưởng mạng có
+ * "trang đăng nhập" nên tự bật trang cấu hình lên. Đăng ký ĐẦU TIÊN vì thư viện
+ * chọn handler theo thứ tự đăng ký.
+ */
+class CaptiveRedirect : public AsyncWebHandler {
+public:
+    bool canHandle(AsyncWebServerRequest* request) override {
+        if (!portalSide(request)) return false;
+        // Handler này đứng ĐẦU danh sách nên được hỏi với MỌI yêu cầu: báo WifiMgr
+        // "có người đang dùng trang cấu hình" cho mọi yêu cầu phía AP (dò captive,
+        // /wifi, /api/wifi/*...) kể cả khi handler khác xử lý -> tạm dừng tự nối nền.
+        WifiMgr::notePortalActivity();
+        const String& host = request->host();
+        return host.length() > 0 && !isOwnHost(host);
+    }
+    void handleRequest(AsyncWebServerRequest* request) override { redirectToPortal(request); }
+};
+CaptiveRedirect g_captive;
+
+/// GET /wifi (và GET / từ phía AP khi cổng cấu hình bật): trang chọn mạng nhúng sẵn.
+void sendPortalPage(AsyncWebServerRequest* request) {
+    if (blocked(request)) return;
+    AsyncWebServerResponse* res =
+        request->beginResponse_P(200, "text/html; charset=utf-8", WIFI_PORTAL_HTML);
+    res->addHeader("Cache-Control", "no-store");
+    request->send(res);
+}
+
+/// Lỗi theo hợp đồng: mã 4xx/5xx + {"ok":false,"err":"<câu tiếng Việt>"} (ArduinoJson thoát chuỗi).
+void sendWifiError(AsyncWebServerRequest* request, int code, const char* err) {
+    JsonDocument doc;
+    doc["ok"]  = false;
+    doc["err"] = err;
+    String out;
+    serializeJson(doc, out);
+    request->send(code, JSON_UTF8, out);
+}
+
+/// Chỉ lấy tham số trong THÂN form POST: mật khẩu không lộ trên URL (log, lịch sử
+/// trình duyệt) và trang lạ không đổi được Wi-Fi bằng một thẻ <img src=...>.
+bool formParam(AsyncWebServerRequest* request, const char* name, String& out) {
+    const AsyncWebParameter* p = request->getParam(name, true);
+    if (p == nullptr) return false;
+    out = p->value();
+    return true;
+}
+
+/// Lấy ssid bắt buộc; thiếu thì trả 400 và trả về false.
+bool requireSsid(AsyncWebServerRequest* request, String& ssid) {
+    if (formParam(request, "ssid", ssid) && ssid.length() > 0) return true;
+    sendWifiError(request, 400, "Thiếu tên mạng (ssid)");
+    return false;
+}
+
+/**
+ * Chống giả mạo yêu cầu từ trang lạ (CSRF) cho các lệnh ghi Wi-Fi: phải có header
+ * tùy biến "X-OALPHA: 1". Form tự submit hay thẻ <img> của trang lạ không đặt được
+ * header; fetch() kèm header tùy biến thì trình duyệt phải hỏi trước (preflight
+ * OPTIONS) mà firmware không trả header CORS nào, nên trình duyệt chặn luôn. Chỉ xét
+ * header CÓ MẶT (giá trị không mang thêm an toàn; thư viện còn cắt giá trị theo
+ * mẫu "Tên: giá trị" nên "X-OALPHA:1" thiếu dấu cách sẽ ra rỗng). Handler đăng ký
+ * bằng on() giữ mọi header (AsyncCallbackWebHandler gọi addInterestingHeader("ANY")).
+ * Thiếu -> 403 và trả về true. Gọi SAU blocked().
+ */
+bool csrfBlocked(AsyncWebServerRequest* request) {
+    if (request->hasHeader("X-OALPHA")) return false;
+    sendWifiError(request, 403, "Thiếu header X-OALPHA (chống giả mạo yêu cầu từ trang lạ)");
+    return true;
+}
+
+void handleWifiAdd(AsyncWebServerRequest* request) {
+    if (blocked(request)) return;
+    if (csrfBlocked(request)) return;
+    String ssid, pass, connect;
+    if (!requireSsid(request, ssid)) return;
+    formParam(request, "pass", pass);         // không có = mạng mở
+    formParam(request, "connect", connect);
+    bool connecting = false;
+    switch (WifiMgr::add(ssid, pass, connect == "1", &connecting)) {
+        case WifiMgr::ADD_OK:
+            break;
+        case WifiMgr::ADD_BAD_SSID:
+            sendWifiError(request, 400, "Tên mạng phải dài từ 1 đến 32 byte");
+            return;
+        case WifiMgr::ADD_BAD_PASS:
+            sendWifiError(request, 400, "Mật khẩu phải dài 8–63 ký tự hoặc đúng 64 ký tự hex "
+                                        "(để trống nếu mạng không đặt mật khẩu)");
+            return;
+        case WifiMgr::ADD_FULL: {
+            char msg[112];
+            snprintf(msg, sizeof msg, "Đã lưu đủ %u mạng, hãy xóa bớt một mạng rồi thêm lại",
+                     (unsigned)WIFI_MAX_SAVED);
+            sendWifiError(request, 507, msg);
+            return;
+        }
+        case WifiMgr::ADD_STORAGE:   // không có gì thay đổi: không lưu, không thử nối
+            sendWifiError(request, 500, "Không ghi được vào bộ nhớ trong");
+            return;
+    }
+    request->send(200, JSON_UTF8, connecting ? "{\"ok\":true,\"connecting\":true}"
+                                             : "{\"ok\":true,\"connecting\":false}");
+}
+
+void handleWifiRemove(AsyncWebServerRequest* request) {
+    if (blocked(request)) return;
+    if (csrfBlocked(request)) return;
+    String ssid;
+    if (!requireSsid(request, ssid)) return;
+    switch (WifiMgr::remove(ssid)) {
+        case WifiMgr::REMOVE_OK:
+            break;
+        case WifiMgr::REMOVE_NOT_FOUND:
+            sendWifiError(request, 404, "Không có mạng này trong danh sách đã lưu");
+            return;
+        case WifiMgr::REMOVE_STORAGE:   // không có gì thay đổi: mạng vẫn còn
+            sendWifiError(request, 500, "Không ghi được vào bộ nhớ trong");
+            return;
+    }
+    request->send(200, JSON_UTF8, "{\"ok\":true}");
+}
+
+void handleWifiConnect(AsyncWebServerRequest* request) {
+    if (blocked(request)) return;
+    if (csrfBlocked(request)) return;
+    String ssid;
+    if (!requireSsid(request, ssid)) return;
+    if (!WifiMgr::connectTo(ssid)) {
+        sendWifiError(request, 404, "Không có mạng này trong danh sách đã lưu");
+        return;
+    }
+    request->send(200, JSON_UTF8, "{\"ok\":true}");
+}
+
+void handleWifiPortal(AsyncWebServerRequest* request) {
+    if (blocked(request)) return;
+    if (csrfBlocked(request)) return;
+    String on;
+    if (!formParam(request, "on", on) || (on != "1" && on != "0")) {
+        sendWifiError(request, 400, "Tham số on phải là 1 (bật) hoặc 0 (tắt)");
+        return;
+    }
+    const bool want = on == "1";
+    WifiMgr::setPortal(want);   // loop() bật/tắt thật ở vòng kế tiếp
+    request->send(200, JSON_UTF8, want ? "{\"ok\":true,\"portal\":true}"
+                                       : "{\"ok\":true,\"portal\":false}");
+}
+
 }  // namespace
 
 bool begin() {
+    // Cổng cấu hình: Host lạ từ phía AP -> về trang cấu hình. PHẢI đứng ĐẦU TIÊN
+    // (thư viện chọn handler theo thứ tự đăng ký).
+    g_server.addHandler(&g_captive);
+
     g_ws.onEvent(onWsEvent);
     g_server.addHandler(&g_ws);
 
@@ -409,6 +632,11 @@ bool begin() {
         if (request->hasParam("tg")) {
             const String v = request->getParam("tg")->value();
             Notifier::grantDashboardLease((uint32_t)strtoul(v.c_str(), nullptr, 10));
+        }
+        // ?zl=<giây>: cũng vậy cho bot Zalo
+        if (request->hasParam("zl")) {
+            const String v = request->getParam("zl")->value();
+            Notifier::grantZaloLease((uint32_t)strtoul(v.c_str(), nullptr, 10));
         }
         request->send(200, "application/json", statusJson());
     });
@@ -464,83 +692,73 @@ bool begin() {
     });
 
     g_server.on("/api/action", HTTP_POST, handleAction);
-    g_server.on("/api/action", HTTP_GET,  handleAction);   // tiện thử bằng thanh địa chỉ
 
     // Lời nhắn người nhà: thân là nguyên file WAV, loa đọc khi rảnh (xem onSayBody)
     g_server.on("/api/say", HTTP_POST, onSayRequest, nullptr, onSayBody);
 
-    // ---------------------- QUẢN LÝ ĐA WI-FI ----------------------
-    // Quét các mạng xung quanh -> JSON [{ssid,rssi,enc}]. Quét đồng bộ (~2-3s)
-    // nên chỉ gọi khi người dùng bấm "Quét" trên trang web.
+    // ---------------------- QUẢN LÝ ĐA WI-FI (API Wi-Fi v2) ----------------------
+    // Các đường dò mạng của điện thoại/máy tính khi đang nối AP cấu hình (Host của
+    // chính thiết bị; Host lạ đã bị g_captive bắt) -> chuyển về trang cấu hình.
+    static const char* const CAPTIVE_PROBES[] = {
+        "/generate_204", "/gen_204",                       // Android / Chrome
+        "/hotspot-detect.html", "/library/test/success.html",   // iOS / macOS
+        "/connecttest.txt", "/ncsi.txt", "/redirect",     // Windows
+        "/fwlink", "/canonical.html", "/success.txt",     // Windows cũ / Firefox / Ubuntu
+    };
+    for (const char* path : CAPTIVE_PROBES)
+        g_server.on(path, HTTP_ANY, redirectToPortal).setFilter(portalSide);
+
+    // Trang chọn mạng nhúng trong firmware: luôn có ở /wifi (kể cả khi chưa uploadfs),
+    // và là trang chủ "/" khi truy cập từ phía AP cấu hình. Cả hai PHẢI đăng ký
+    // TRƯỚC serveStatic, nếu không "/" sẽ trả index.html.
+    g_server.on("/wifi", HTTP_GET, sendPortalPage);
+    g_server.on("/", HTTP_GET, sendPortalPage).setFilter(portalSide);
+
+    // Trạng thái đầy đủ của bộ quản lý Wi-Fi.
+    g_server.on("/api/wifi/state", HTTP_GET, [](AsyncWebServerRequest* request) {
+        if (blocked(request)) return;
+        request->send(200, JSON_UTF8, WifiMgr::stateJson());
+    });
+
+    // Mạng xung quanh: trả cache NGAY (không bao giờ chặn); ?fresh=1 xin quét lại.
     g_server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (blocked(request)) return;
-        request->send(200, "application/json", WifiMgr::scanJson());
+        const bool fresh = request->hasParam("fresh") && request->getParam("fresh")->value() == "1";
+        request->send(200, JSON_UTF8, WifiMgr::scanJson(fresh));
     });
 
-    // Danh sách mạng ĐÃ LƯU (chỉ SSID, KHÔNG kèm mật khẩu).
+    // Mạng ĐÃ LƯU kèm kết quả thử gần nhất (KHÔNG BAO GIỜ kèm mật khẩu).
     g_server.on("/api/wifi/list", HTTP_GET, [](AsyncWebServerRequest* request) {
         if (blocked(request)) return;
-        request->send(200, "application/json", WifiMgr::listJson());
+        request->send(200, JSON_UTF8, WifiMgr::listJson());
     });
 
-    // Thêm/cập nhật một mạng rồi thử nối ngay. Tham số ssid, pass (form hoặc URL).
-    auto handleWifiAdd = [](AsyncWebServerRequest* request) {
-        if (blocked(request)) return;
-        String ssid, pass;
-        if (request->hasParam("ssid", true))      ssid = request->getParam("ssid", true)->value();
-        else if (request->hasParam("ssid"))       ssid = request->getParam("ssid")->value();
-        if (request->hasParam("pass", true))      pass = request->getParam("pass", true)->value();
-        else if (request->hasParam("pass"))       pass = request->getParam("pass")->value();
-
-        if (ssid.length() == 0) {
-            request->send(400, "application/json", "{\"ok\":false,\"err\":\"thieu ten mang\"}");
-            return;
-        }
-        if (WifiMgr::add(ssid, pass))
-            request->send(200, "application/json", "{\"ok\":true}");
-        else
-            request->send(507, "application/json", "{\"ok\":false,\"err\":\"danh sach day\"}");
-    };
-    g_server.on("/api/wifi/add", HTTP_POST, handleWifiAdd);
-    g_server.on("/api/wifi/add", HTTP_GET,  handleWifiAdd);   // tiện thử bằng thanh địa chỉ
-
-    // Xóa một mạng đã lưu theo SSID.
-    auto handleWifiRemove = [](AsyncWebServerRequest* request) {
-        if (blocked(request)) return;
-        String ssid;
-        if (request->hasParam("ssid", true))      ssid = request->getParam("ssid", true)->value();
-        else if (request->hasParam("ssid"))       ssid = request->getParam("ssid")->value();
-
-        if (ssid.length() == 0) {
-            request->send(400, "application/json", "{\"ok\":false,\"err\":\"thieu ten mang\"}");
-            return;
-        }
-        if (WifiMgr::remove(ssid))
-            request->send(200, "application/json", "{\"ok\":true}");
-        else
-            request->send(404, "application/json", "{\"ok\":false,\"err\":\"khong tim thay mang\"}");
-    };
-    g_server.on("/api/wifi/remove", HTTP_POST, handleWifiRemove);
-    g_server.on("/api/wifi/remove", HTTP_GET,  handleWifiRemove);
+    // Chỉ POST (form): bản cũ có thêm GET nên mật khẩu lộ trên URL và trang lạ có
+    // thể đổi Wi-Fi của thiết bị chỉ bằng một thẻ <img>. Thêm nữa phải có header
+    // "X-OALPHA: 1" (thiếu -> 403), để form tự submit từ trang lạ cũng bị chặn.
+    g_server.on("/api/wifi/add",     HTTP_POST, handleWifiAdd);
+    g_server.on("/api/wifi/remove",  HTTP_POST, handleWifiRemove);
+    g_server.on("/api/wifi/connect", HTTP_POST, handleWifiConnect);
+    g_server.on("/api/wifi/portal",  HTTP_POST, handleWifiPortal);
 
     // Trang tĩnh trong LittleFS (data/index.html)
     auto& stat = g_server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
     if (authEnabled()) stat.setAuthentication(WEB_USER, WEB_PASS);
 
     g_server.onNotFound([](AsyncWebServerRequest* request) {
+        // Từ phía AP cấu hình: mọi đường lạ đều dẫn về trang chọn mạng.
+        if (portalSide(request)) { redirectToPortal(request); return; }
         if (!LittleFS.exists("/index.html")) {
-            request->send(200, "text/html; charset=utf-8",
-                          "<h2>Chua nap giao dien web</h2>"
-                          "<p>Hay chay lenh: <code>pio run -t uploadfs</code> "
-                          "de nap thu muc data/ vao LittleFS.</p>");
+            request->send(200, "text/html; charset=utf-8", NO_UI_HTML);
             return;
         }
-        request->send(404, "text/plain", "Khong tim thay");
+        request->send(404, "text/plain; charset=utf-8", "Không tìm thấy");
     });
 
     g_server.begin();
-    Serial.printf("[WEB] May chu web chay tai http://%s/  (hoac http://%s.local/)\n",
-                  WiFi.localIP().toString().c_str(), HOSTNAME);
+    // Lúc này Wi-Fi thường chưa nối xong (WifiMgr nối dần trong loop()) nên không in IP.
+    Serial.printf("[WEB] May chu web: http://%s.local/  |  cau hinh Wi-Fi: http://%s.local/wifi"
+                  "  (qua AP cau hinh: http://192.168.4.1/)\n", HOSTNAME, HOSTNAME);
     return true;
 }
 

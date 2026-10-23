@@ -165,31 +165,63 @@ constexpr size_t   QUEUE_MAX_ITEMS  = 20;          // số tin chờ gửi tối
 #define NTP_SERVER_1    "pool.ntp.org"
 #define NTP_SERVER_2    "time.google.com"
 #define TIMEZONE_VN     "<+07>-7"            // Giờ Việt Nam (UTC+7), không đổi giờ mùa
-constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;  // thử kết nối lại mỗi 10s
+constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;  // (không còn dùng: WifiMgr tự giãn cách 3 s -> 30 s)
 constexpr uint32_t TELEGRAM_RETRY_MS      = 15000;  // thử gửi lại tin trong hàng đợi
 
 // ----------------------- BỘ QUẢN LÝ ĐA WI-FI --------------------------------
-// Thiết bị lưu NHIỀU mạng Wi-Fi trong bộ nhớ bền (NVS) và tự nối mạng mạnh nhất
-// đang có. Khi không nối được mạng nào đã lưu trong CONFIG_PORTAL_AFTER_MS thì
-// thiết bị TỰ bật AP (phát Wi-Fi riêng) + trang cấu hình để nhập/chọn mạng mới
-// tại chỗ — không phải nạp lại firmware, không phải sửa secrets.h.
+// Thiết bị lưu NHIỀU mạng Wi-Fi trong bộ nhớ bền (NVS) và tự nối mạng tốt nhất
+// đang có (xem src/net/wifi_mgr.h). Mọi việc quét/nối đều PHI CHẶN: loop() không
+// bao giờ đứng chờ Wi-Fi, nên nút OK/SOS và máy trạng thái té ngã vẫn phản hồi
+// tức thì kể cả lúc mất mạng.
+//
+// Không nối được mạng nào trong CONFIG_PORTAL_AFTER_MS (hoặc chưa lưu mạng nào)
+// thì thiết bị TỰ bật AP cấu hình tên AP_SSID: điện thoại nối vào là tự hiện
+// trang chọn mạng (captive portal, http://192.168.4.1/) — không phải nạp lại
+// firmware, không phải sửa secrets.h. Từ mạng LAN thì vào http://<HOSTNAME>.local/wifi.
 //
 // WIFI_SSID/WIFI_PASSWORD trong secrets.h giờ CHỈ là mạng "mồi" seed vào NVS ở
-// lần chạy đầu (để tương thích ngược). Thêm/bớt mạng khác qua trang web.
+// lần chạy đầu (để tương thích ngược). Thêm/bớt mạng khác qua trang /wifi.
 
 // Số mạng Wi-Fi tối đa lưu được trong NVS.
 constexpr size_t   WIFI_MAX_SAVED         = 8;
 
-// Thử hết danh sách bao lâu mà vẫn không nối được thì bật AP cấu hình (ms).
+// Không có mạng liên tục bao lâu (tính từ lúc khởi động hoặc lúc mất mạng) thì
+// tự bật AP cấu hình (ms).
 constexpr uint32_t CONFIG_PORTAL_AFTER_MS = 25000;   // 25 giây
 
-// Mật khẩu của AP cấu hình. ĐỔI khi triển khai thật (phải >= 8 ký tự theo chuẩn
-// WPA2). Người dùng gõ mật khẩu này khi kết nối vào Wi-Fi do thiết bị phát ra.
+// Tên (SSID) của AP cấu hình do thiết bị phát ra.
+#define AP_SSID       HOSTNAME
+
+// Mật khẩu của AP cấu hình. PHẢI ĐỔI khi triển khai thật: ai đứng gần mà biết
+// mật khẩu mặc định này là vào được trang đổi Wi-Fi của thiết bị (nếu chưa đặt
+// WEB_USER/WEB_PASS trong secrets.h). Tối thiểu 8 ký tự theo chuẩn WPA2; ngắn
+// hơn thì firmware phát AP MỞ (không mật khẩu) và in cảnh báo ra Serial.
 #define AP_PASSWORD   "12345678"
+
+// Một lượt thử nối một mạng tối đa bao lâu (ms): gồm tìm sóng, xác thực, xin IP.
+constexpr uint32_t WIFI_ATTEMPT_TIMEOUT_MS = 15000;
+// Lượt "thử nhanh" (khởi động thử thẳng mạng dùng gần nhất, hoặc vừa mất mạng
+// thử lại đúng mạng đó) không quét trước nên đặt giới hạn ngắn hơn (ms).
+constexpr uint32_t WIFI_FAST_RETRY_MS      = 8000;
+// Kết quả quét mạng xung quanh được dùng lại trong bao lâu (ms) trước khi trang
+// web xin quét lại.
+constexpr uint32_t WIFI_SCAN_CACHE_MS      = 20000;
+// AP tự bật mà vừa nối được mạng: còn điện thoại trong AP thì giữ AP thêm chừng
+// này (ms) cho điện thoại kịp thấy kết quả + IP mới (không ai thì tắt sau 5 s).
+constexpr uint32_t PORTAL_LINGER_MS        = 60000;
+// AP bật bằng tay: đang có mạng thì tự tắt sau chừng này (ms).
+constexpr uint32_t PORTAL_MANUAL_MAX_MS    = 600000;  // 10 phút
 
 // Chu kỳ hỏi tin nhắn mới từ người nhà qua Telegram (ms). Để 0 thì TẮT hẳn tính
 // năng chat hai chiều (chỉ gửi cảnh báo đi, không nhận hỏi đáp).
 constexpr uint32_t TELEGRAM_POLL_MS       = 4000;
+
+// Chat hai chiều qua Zalo Bot: mỗi lượt hỏi tin, máy chủ Zalo giữ kết nối chờ
+// tối đa chừng này giây (long polling) — có tin là trả về ngay, nên người nhà
+// nhận trả lời gần như tức thì mà ESP32 không phải bắt tay HTTPS liên tục.
+// Chạy trong task riêng nên không làm chậm việc gửi cảnh báo. Để 0 thì TẮT nhận
+// tin Zalo (vẫn gửi cảnh báo qua Zalo nếu đã khai ZALO_BOT_TOKEN + ZALO_CHAT_ID).
+constexpr uint32_t ZALO_POLL_TIMEOUT_S    = 20;
 
 // ===================== TRỢ LÝ HỘI THOẠI (kiểu Xiaozhi) =====================
 // ESP32 ghi âm từ mic INMP441 rồi gửi lên "bộ não" chạy trên dashboard (Next.js)

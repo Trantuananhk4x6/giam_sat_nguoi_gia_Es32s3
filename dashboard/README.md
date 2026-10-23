@@ -47,12 +47,12 @@ sub-menu "Kỹ thuật".
 |---|---|
 | **Tổng quan** (`/`) | Tình hình bằng lời thường, mức độ (bình thường / cần chú ý / khẩn cấp), AI nhận xét trong ngày, diễn biến hôm nay, lời nhắn gần đây |
 | **Hỏi thăm › Trò chuyện với trợ lý** | Hỏi "Hôm nay bà thế nào?", AI trả lời dựa trên dữ liệu radar; gõ `/hoitham <lời nhắn>` để loa đọc |
-| **Hỏi thăm › Gửi lời nhắn qua loa** | Soạn lời nhắn, xem trước câu loa sẽ đọc, gửi xuống ESP32; nhật ký mọi lượt hỏi thăm (Telegram + web) |
+| **Hỏi thăm › Gửi lời nhắn qua loa** | Soạn lời nhắn, xem trước câu loa sẽ đọc, gửi xuống ESP32; nhật ký mọi lượt hỏi thăm (Telegram + Zalo + web) |
 | **Nhật ký** | Diễn biến nhiều ngày bằng lời thường, tải CSV |
 | **Kỹ thuật › Giám sát thiết bị** | Số liệu thô radar, mạng, sinh hiệu, công cụ thử (trang chủ cũ) |
 | **Kỹ thuật › Đo thực nghiệm** | Tạo phiên đo, chạy từng lần thử, hệ thống tự chấm kết quả |
 | **Kỹ thuật › Báo cáo & biểu đồ** | Chỉ số, ma trận nhầm lẫn, so sánh cấu hình, xuất CSV, nhận xét bằng AI |
-| **Cài đặt** | Địa chỉ ESP32, cách xưng hô, giọng đọc, bật/tắt bot Telegram hai chiều |
+| **Cài đặt** | Địa chỉ ESP32, cách xưng hô, giọng đọc, bật/tắt bot Telegram và bot Zalo hai chiều |
 
 ### Telegram hai chiều và lời nhắn qua loa
 
@@ -72,6 +72,25 @@ lạ bị từ chối. Đang nghi ngã / khẩn cấp thì loa không đọc l�
 ESP32 tự trả lời như cũ, `/hoitham` phát lời hỏi thăm thu sẵn (`data/hoitham.wav`).
 Mọi lượt lưu ở `data/messages.jsonl`. Bộ giả lập cũng hiểu `?tg=` và `/api/say`
 (file WAV nhận được lưu ra thư mục tạm để nghe lại).
+
+### Zalo hai chiều (Zalo Bot, dùng Zalo cá nhân)
+
+Y hệt Telegram, dùng chung "bộ não" `lib/family-bot.ts` (cùng câu trả lời, cùng
+`/hoitham`, cùng nhật ký — kênh ghi là `zalo`). Bot tạo trên **Zalo Bot Platform**
+chính thức: Zalo → OA **Zalo Bot Manager** → **Tạo bot** → token được nhắn về tài
+khoản của bạn. Khai trong `.env.local`:
+
+- `ZALO_BOT_TOKEN` (cùng bot với `secrets.h`), `ZALO_CHAT_ID=id1,id2` — chat được phép;
+- `ZALO_ALLOWED_CHAT_IDS` (thêm người hỏi được), `ZALO_BOT_DISABLED=1` (tắt hẳn).
+
+Lấy mã chat: người nhà nhắn bot một câu bất kỳ → bot trả lời "Mã chat Zalo của
+anh/chị là: …" (người lạ được báo tối đa 1 lần / 10 phút, không lộ tình hình).
+Dashboard thuê quyền đọc tin Zalo qua `?zl=<giây>`; vì Zalo `getUpdates` không có
+offset, nó chỉ đọc khi ESP32 báo `zalo.poller = "dashboard"` (firmware cũ không đọc
+Zalo thì dashboard đọc luôn). Lời nhắn người cao tuổi nhờ gửi (`lib/relay.ts`) cũng
+đi qua Zalo nếu người trong danh bạ có `zaloChatId`. Bật/tắt và xem trạng thái ở
+trang **Cài đặt** → *Bot Zalo hai chiều*. Bộ giả lập hiểu `?zl=` (đặt
+`SIM_ZALO_CHATS=0` để giả firmware chưa khai Zalo) và nút *Gửi Zalo thử*.
 
 ---
 

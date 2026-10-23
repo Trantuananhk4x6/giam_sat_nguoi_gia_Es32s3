@@ -1,6 +1,7 @@
 /**
  * @file  notifier.h
- * @brief Gửi cảnh báo qua bot Telegram, có hàng đợi chống mất tin khi rớt mạng.
+ * @brief Gửi cảnh báo qua bot Telegram, Zalo Bot và email, có hàng đợi chống mất
+ *        tin khi rớt mạng; chat hai chiều với người nhà qua Telegram và Zalo.
  *
  * CÁCH XỬ LÝ TÌNH HUỐNG "MẤT WI-FI" (yêu cầu ở mục 4 của bản kế hoạch)
  *   Mọi tin nhắn đều được đẩy vào hàng đợi trước, rồi một task riêng mới lấy ra
@@ -17,7 +18,9 @@ namespace Notifier {
 bool begin();
 
 /// Đưa một tin vào hàng đợi (an toàn khi gọi từ task khác). Trả về false nếu đầy.
-/// Tin sẽ được fan-out ra MỌI kênh đang bật (giữ nguyên hành vi cảnh báo thật).
+/// Tin sẽ được fan-out ra MỌI kênh đang bật; Telegram / Zalo thì tới MỌI chat id
+/// trong TELEGRAM_CHAT_ID / ZALO_CHAT_ID (mỗi người một tin riêng, lỗi tạm ở người
+/// nào thì thử lại người đó).
 bool send(const String& text);
 
 // --- Mặt nạ kênh (công khai) để gọi sendOne() gửi thử riêng từng kênh ---
@@ -48,24 +51,27 @@ uint32_t lastSuccessMs();
 const char* channelsText();
 
 // ===========================================================================
-//  CHAT HAI CHIỀU VỚI NGƯỜI NHÀ (Telegram)
+//  CHAT HAI CHIỀU VỚI NGƯỜI NHÀ (Telegram + Zalo)
 // ===========================================================================
 //
 //  Người nhà nhắn cho bot (ví dụ "dạo này ông bà thế nào?") -> firmware đọc tin
 //  qua getUpdates, gọi hàm dựng câu trả lời (do main.cpp cung cấp) rồi gửi lại.
-//  Chỉ chấp nhận tin từ đúng TELEGRAM_CHAT_ID đã khai trong secrets.h — người lạ
-//  biết tên bot cũng không hỏi được tình hình người thân của bạn.
+//  Chỉ chấp nhận tin từ các chat id khai trong TELEGRAM_CHAT_ID / ZALO_CHAT_ID
+//  (secrets.h; nhiều người thì cách nhau dấu phẩy), nên người lạ biết tên bot
+//  cũng không hỏi được tình hình người thân của bạn. Riêng Zalo, người lạ được
+//  báo lại "mã chat" của họ (tối đa 1 lần / 10 phút) để người nhà mới tự lấy mã.
 //
 //  Kiểu hàm dựng trả lời: nhận tin người nhà gửi (gồm cả bản gốc lẫn bản chữ
-//  thường, tên người gửi), trả về chuỗi HTML để gửi lại. main.cpp đăng ký hàm
-//  này trong setup().
+//  thường, tên người gửi), trả về chuỗi HTML để gửi lại (Zalo không nhận HTML
+//  nên firmware tự bỏ thẻ). main.cpp đăng ký hàm này trong setup(). Hàm có thể
+//  được gọi từ task Telegram và task Zalo cùng lúc nên chỉ được ĐỌC trạng thái.
 
 /// Một tin nhắn của người nhà, đã lọc đúng chat id được phép.
 struct FamilyMessage {
     String text;       ///< nguyên văn (giữ hoa/thường, dùng khi cần trích lại lời nhắn)
     String lower;      ///< bản chữ thường để so khớp lệnh / từ khóa
-    String fromName;   ///< message.from.first_name, có thể rỗng
-    String chatId;     ///< chat id đã đối chiếu với TELEGRAM_CHAT_ID
+    String fromName;   ///< tên người gửi (Telegram first_name / Zalo display_name), có thể rỗng
+    String chatId;     ///< chat id đã đối chiếu với danh sách TELEGRAM_CHAT_ID / ZALO_CHAT_ID
 };
 
 /// Kiểu con trỏ hàm dựng câu trả lời cho tin nhắn của người nhà.
@@ -91,5 +97,26 @@ void grantDashboardLease(uint32_t seconds);
 /// Ai đang đọc tin Telegram: "off" (tắt chat hai chiều hoặc chưa cấu hình
 /// Telegram), "dashboard" (đang trong thời gian thuê) hoặc "device" (ESP32).
 const char* telegramPoller();
+
+// ---------------------------------------------------------------------------
+//  Zalo: cùng cơ chế thuê, nhưng dashboard xin qua GET /api/status?zl=<giây>.
+//  Zalo getUpdates không có "offset": tin nào đã trả cho một bên là bên đó phải
+//  xử lý, không trả lại được như Telegram. Vì vậy ESP32 chỉ báo "dashboard" khi
+//  ĐÃ thật sự ngừng hỏi (không còn lượt chờ tin nào đang dở), để hai bên không
+//  bao giờ cùng chờ tin một lúc.
+// ---------------------------------------------------------------------------
+
+/// Dashboard xin quyền đọc tin Zalo trong `seconds` giây (kẹp vào 5..120).
+void grantZaloLease(uint32_t seconds);
+
+/// Ai đang đọc tin Zalo: "off" (tắt / chưa khai ZALO_BOT_TOKEN), "dashboard"
+/// (ESP32 đã nhường) hoặc "device" (ESP32 đang tự đọc và trả lời).
+const char* zaloPoller();
+
+/// Số người nhận cảnh báo Zalo đã khai trong ZALO_CHAT_ID.
+uint8_t zaloChatCount();
+
+/// Kết quả lượt hỏi tin Zalo gần nhất (để dò lỗi token trên trang web).
+const char* zaloPollResult();
 
 }  // namespace Notifier

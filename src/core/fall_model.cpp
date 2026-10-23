@@ -11,7 +11,13 @@ float g_lastProb = 0.0f;
 
 /// Số cửa sổ liên tiếp phải vượt ngưỡng mới kết luận là té ngã.
 /// Đặt 2 để một cửa sổ nhiễu đơn lẻ không làm model báo động.
-constexpr uint8_t CONFIRM_WINDOWS = 2;
+///
+/// Lấy từ include/model_weights.h để notebook (mô phỏng firmware khi chọn ngưỡng) và
+/// firmware không thể lệch nhau. File trọng số sinh trước khi có hằng số này thì dùng 2.
+#ifndef FALL_MODEL_CONFIRM_WINDOWS
+#define FALL_MODEL_CONFIRM_WINDOWS 2
+#endif
+constexpr uint8_t CONFIRM_WINDOWS = FALL_MODEL_CONFIRM_WINDOWS;
 uint8_t g_aboveCount = 0;
 
 inline float sigmoid(float x) {

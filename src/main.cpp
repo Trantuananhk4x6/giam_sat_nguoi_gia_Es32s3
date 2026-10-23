@@ -99,6 +99,8 @@ uint32_t g_vitalAlertAt  = 0;   ///< lần gửi cảnh báo sinh hiệu gần n
 
 bool g_wifiWasUp   = false;
 bool g_timeSynced  = false;
+bool g_bootMsgSent = false;    ///< đã đưa tin "đã khởi động" vào hàng đợi chưa
+constexpr uint32_t BOOT_MSG_WAIT_MS = 20000;   ///< chưa có mạng sau 20 s vẫn gửi tin khởi động
 
 // ===========================================================================
 //  Hàm phụ trợ
@@ -604,16 +606,17 @@ void serviceSay() {
 //  Wi-Fi và đồng hồ
 // ===========================================================================
 // Khởi động Wi-Fi: giao hẳn cho bộ quản lý đa Wi-Fi (WifiMgr). WifiMgr nạp danh
-// sách mạng từ NVS (seed từ secrets.h nếu NVS rỗng), tự quét + nối mạng mạnh
+// sách mạng từ NVS (seed từ secrets.h nếu NVS rỗng), tự quét + nối mạng tốt
 // nhất, và tự bật AP cấu hình khi không nối được mạng nào. begin() PHI CHẶN:
 // không chờ sẵn kết nối ở đây — việc nối diễn ra dần trong serviceWifi().
 void startWifi() {
     WifiMgr::begin();
 }
 
-// Theo dõi Wi-Fi mỗi vòng loop(). WifiMgr lo phần máy trạng thái (nối lại, bật/
-// tắt AP); hàm này CHỈ giữ các hành vi cũ gắn với lúc CHUYỂN trạng thái lên/
-// xuống: ghi log EV_WIFI_UP/DOWN, đồng bộ NTP lần đầu nối được, bật mDNS.
+// Theo dõi Wi-Fi mỗi vòng loop(). WifiMgr lo phần máy trạng thái (quét async,
+// nối lại, bật/tắt AP) và KHÔNG BAO GIỜ chặn, nên nút OK/SOS vẫn phản hồi tức
+// thì kể cả lúc mất mạng. Hàm này CHỈ giữ các việc gắn với lúc mạng LÊN/XUỐNG:
+// ghi log EV_WIFI_UP/DOWN, đồng bộ NTP lần đầu nối được, bật mDNS.
 void serviceWifi() {
     WifiMgr::loop();
 
@@ -628,7 +631,14 @@ void serviceWifi() {
             configTzTime(TIMEZONE_VN, NTP_SERVER_1, NTP_SERVER_2);
             g_timeSynced = true;
         }
-        if (MDNS.begin(HOSTNAME)) MDNS.addService("http", "tcp", 80);
+        // mDNS chỉ khởi động MỘT lần: sau đó IDF tự theo mạng lên/xuống cho nó, còn
+        // gọi MDNS.begin() lần nữa khi đã chạy thì báo lỗi. Lần đầu lỗi thì để lần
+        // có mạng sau thử lại.
+        static bool mdnsStarted = false;
+        if (!mdnsStarted && MDNS.begin(HOSTNAME)) {
+            MDNS.addService("http", "tcp", 80);
+            mdnsStarted = true;
+        }
     } else if (!up && g_wifiWasUp) {
         Serial.println("[WIFI] Mat ket noi -> tin canh bao se duoc xep hang doi");
         EventLog::add(EV_WIFI_DOWN, SRC_SYSTEM, g_state, "");
@@ -636,14 +646,39 @@ void serviceWifi() {
     g_wifiWasUp = up;
 }
 
+/// Đưa tin "Hệ thống giám sát đã khởi động" vào hàng đợi ĐÚNG MỘT LẦN: ngay khi
+/// có mạng (để kèm được địa chỉ trang giám sát), hoặc khi đã quá 20 giây kể từ
+/// lúc bật nguồn mà vẫn chưa có mạng (tin nằm chờ, có mạng thì tự gửi). Thay cho
+/// vòng chờ chặn 15 giây trong setup() trước đây.
+void serviceBootMessage() {
+    if (g_bootMsgSent) return;
+    const bool up = WifiMgr::isConnected();
+    if (!up && millis() < BOOT_MSG_WAIT_MS) return;
+    g_bootMsgSent = true;
+
+    String msg = "\xE2\x84\xB9\xEF\xB8\x8F <b>Hệ thống giám sát đã khởi động</b>\n";
+    msg += "Người được giám sát: ";
+    msg += esc(PATIENT_NAME);
+    msg += "\nVị trí: ";
+    msg += esc(DEVICE_PLACE);
+    if (up && WiFi.status() == WL_CONNECTED) {
+        msg += "\nTrang giám sát: http://";
+        msg += WiFi.localIP().toString();
+        msg += "/";
+    }
+    Notifier::send(msg);
+}
+
 // ===========================================================================
-//  Trả lời người nhà khi họ nhắn cho bot Telegram
+//  Trả lời người nhà khi họ nhắn cho bot Telegram hoặc Zalo
 // ===========================================================================
 //
 //  Người nhà nhắn "dạo này ông bà thế nào?" -> bot trả lời tình hình hiện tại
-//  bằng lời lẽ dễ hiểu. Hàm này do task gửi tin (notifier) gọi, nên chỉ ĐỌC
-//  trạng thái, không đổi gì — tránh tranh chấp với máy trạng thái ở loop().
-//  Riêng lệnh /hoitham chỉ BẬT CỜ qua App::requestSay(); loop() mới phát loa.
+//  bằng lời lẽ dễ hiểu. Hàm này do task gửi tin (notifier, Telegram) và task
+//  Zalo gọi — có thể cùng lúc — nên chỉ ĐỌC trạng thái, không đổi gì, tránh
+//  tranh chấp với máy trạng thái ở loop(). Trả về HTML kiểu Telegram; với Zalo,
+//  notifier tự bỏ thẻ. Riêng lệnh /hoitham chỉ BẬT CỜ qua App::requestSay();
+//  loop() mới phát loa.
 
 /// Mô tả "cách đây bao lâu" cho thân thiện: "vừa xong", "3 phút trước"...
 String agoText(uint32_t sinceMs) {
@@ -845,6 +880,10 @@ bool sayPending() { return g_reqSay; }
 //  setup / loop
 // ===========================================================================
 void setup() {
+    // Bộ đệm phát 1 KB (PHẢI đặt trước begin()): mặc định chỉ có FIFO 128 byte của
+    // UART, đầy là Serial.printf đứng chờ ~11 byte/ms ở 115200 baud -> loop() bị
+    // chặn 10–25 ms mỗi đợt log (vd. mỗi lượt thử Wi-Fi hỏng).
+    Serial.setTxBufferSize(1024);
     Serial.begin(115200);
     delay(600);                       // chờ cổng USB-CDC sẵn sàng
     Serial.println();
@@ -863,22 +902,10 @@ void setup() {
     Assistant::begin();               // trợ lý hội thoại (tự tắt nếu thiếu server/mic)
     Radar::begin();                   // task riêng, không chặn setup()
 
-    startWifi();                      // giao Wi-Fi cho WifiMgr (phi chặn)
-    // Cho WifiMgr ít giây để nối mạng đã lưu TRƯỚC khi gửi tin khởi động, để tin
-    // "đã khởi động" kịp kèm địa chỉ trang giám sát trong trường hợp thường gặp
-    // (có mạng đã lưu đang hiện diện). Không nối được thì cũng không chờ lâu:
-    // WifiMgr sẽ tiếp tục thử (và bật AP cấu hình) trong loop().
-    {
-        const uint32_t t0 = millis();
-        Serial.print("[WIFI] Dang quet va noi mang da luu");
-        while (!WifiMgr::isConnected() && millis() - t0 < 15000) {
-            serviceWifi();
-            delay(200);
-            Serial.print(".");
-        }
-        Serial.println();
-    }
-    serviceWifi();
+    // Giao Wi-Fi cho WifiMgr. KHÔNG chờ nối mạng ở đây: việc quét/nối diễn ra dần
+    // trong loop(), nên máy trạng thái té ngã và nút OK/SOS chạy ngay từ đầu.
+    // Tin "đã khởi động" do serviceBootMessage() gửi khi có mạng (hoặc sau 20 s).
+    startWifi();
     Notifier::onFamilyMessage(buildFamilyReply);   // bật chat hai chiều với người nhà
     Notifier::begin();
     WebUi::begin();
@@ -886,18 +913,6 @@ void setup() {
     EventLog::add(EV_BOOT, SRC_SYSTEM, ST_BOOT, SIMULATE_RADAR ? "che do mo phong" : "");
     g_stateSince = millis();
     Hmi::setState(ST_BOOT);
-
-    String msg = "\xE2\x84\xB9\xEF\xB8\x8F <b>Hệ thống giám sát đã khởi động</b>\n";
-    msg += "Người được giám sát: ";
-    msg += esc(PATIENT_NAME);
-    msg += "\nVị trí: ";
-    msg += esc(DEVICE_PLACE);
-    if (WiFi.status() == WL_CONNECTED) {
-        msg += "\nTrang giám sát: http://";
-        msg += WiFi.localIP().toString();
-        msg += "/";
-    }
-    Notifier::send(msg);
 
     Serial.println("[APP] San sang. Mo trang giam sat tren dien thoai cung Wi-Fi.");
 }
@@ -908,7 +923,8 @@ void loop() {
     serviceSay();             // lời nhắn người nhà chờ loa phát (dashboard / Telegram)
     stateMachineTick();       // máy trạng thái chính
     serviceVitals();          // theo dõi nhịp tim/nhịp thở (nếu bật chế độ giấc ngủ)
-    serviceWifi();            // theo dõi và kết nối lại Wi-Fi
+    serviceWifi();            // theo dõi và kết nối lại Wi-Fi (không bao giờ chặn)
+    serviceBootMessage();     // tin "đã khởi động": một lần, khi có mạng hoặc sau 20 s
     WebUi::loop();            // đẩy dữ liệu qua WebSocket
     Assistant::loop();        // trợ lý hội thoại (rất nhẹ; việc nặng ở task riêng)
 

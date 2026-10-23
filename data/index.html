@@ -218,36 +218,24 @@
   </div>
 
   <!-- ===================== Quản lý Wi-Fi ===================== -->
+  <!-- Thẻ gọn: chỉ hiển thị trạng thái. Quét / thêm / xóa mạng, đổi mật khẩu,
+       bật/tắt Wi-Fi cấu hình nằm ở trang /wifi (nhúng sẵn trong firmware). -->
   <div class="card" id="wifiCard" style="grid-column:1/-1">
-    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="18.5" r="1" fill="currentColor"/></svg>Quản lý Wi-Fi</h2>
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 15.5a5 5 0 0 1 7 0"/><circle cx="12" cy="18.5" r="1" fill="currentColor"/></svg>Wi-Fi của thiết bị</h2>
+    <div class="row"><span>Trạng thái</span><b id="wfPhase">—</b></div>
+    <div class="row"><span>Mạng hiện tại</span><b id="wfNet" style="display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">—</b></div>
+    <div class="row"><span>Địa chỉ IP</span><b id="wfIp">—</b></div>
 
-    <div id="portalBox" class="hint" style="display:none;background:var(--warn-soft);color:#8a5a00;border-radius:12px;padding:10px 12px;margin:0 0 12px">
-      Thiết bị đang <b>phát Wi-Fi riêng</b> (<span id="portalAp">—</span>) vì chưa nối được mạng nào đã lưu.
-      Hãy chọn/nhập một mạng bên dưới để thiết bị kết nối, rồi AP sẽ tự tắt.
+    <div id="wfAp" class="hint" style="display:none;background:var(--warn-soft);color:#6b4a00;border-radius:12px;padding:10px 12px">
+      Thiết bị đang phát Wi-Fi cấu hình <b id="wfApName">—</b>. Nối điện thoại vào mạng này rồi mở
+      <b id="wfApIp">192.168.4.1</b> để cài đặt<span id="wfApCli"></span>.
     </div>
+    <!-- Kết quả lần thử kết nối gần đây (ẩn khi đã quá 120 giây) -->
+    <div id="wfRes" role="status" aria-live="polite"></div>
 
-    <div class="row"><span>Đang kết nối</span><b id="wCur">—</b></div>
-
-    <!-- Danh sách mạng đã lưu -->
-    <div style="margin:12px 0 4px;color:var(--faint);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700">Mạng đã lưu</div>
-    <div id="savedList" class="hint" style="margin-top:4px">Đang tải…</div>
-
-    <!-- Quét + chọn mạng mới -->
-    <div style="margin:16px 0 4px;color:var(--faint);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700">Thêm mạng mới</div>
-    <div class="btns" style="margin-bottom:10px">
-      <button class="b-gray" id="scanBtn" onclick="wifiScan()">Quét mạng xung quanh</button>
-    </div>
-    <div id="scanList" class="hint" style="margin-bottom:10px"></div>
-
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-      <input id="wSsidIn" placeholder="Tên Wi-Fi (SSID)" style="flex:1;min-width:160px;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--fg)">
-      <input id="wPassIn" type="password" placeholder="Mật khẩu" style="flex:1;min-width:160px;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--fg)">
-      <button class="b-ok" onclick="wifiAdd()">Lưu &amp; kết nối</button>
-    </div>
-    <div class="hint">
-      Thiết bị tự nối mạng <b>mạnh nhất</b> trong các mạng đã lưu. Khi không nối được mạng nào,
-      thiết bị phát Wi-Fi riêng để bạn cấu hình tại chỗ — không cần nạp lại firmware.
-      Tới nơi mới chỉ cần thêm Wi-Fi ở đây.
+    <div class="btns" style="margin-top:14px;align-items:center">
+      <a class="b-ok" href="/wifi" style="display:inline-block;padding:11px 16px;border-radius:12px;color:#fff;font-weight:600;text-decoration:none">Quản lý Wi-Fi</a>
+      <span class="hint" style="margin:0">Quét mạng, thêm/xóa mạng đã lưu, đổi mật khẩu, bật/tắt Wi-Fi cấu hình.</span>
     </div>
   </div>
 
@@ -266,6 +254,20 @@
     <div class="hint">
       Nhịp tim và nhịp thở là <b>ước lượng bằng sóng radar, không phải thiết bị y tế</b>.
       Chỉ đo được khi đang theo dõi giấc ngủ — lúc đó hệ thống <b>không phát hiện té ngã</b>.
+    </div>
+  </div>
+
+  <!-- ===================== Model AI tự huấn luyện ===================== -->
+  <div class="card" id="aiCard" style="display:none">
+    <h2><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5L19 19M19 5l-2.5 2.5M7.5 16.5L5 19"/></svg>Model AI tự huấn luyện</h2>
+    <div class="row"><span>Tư thế đang nhận ra</span><b id="aiPost">—</b></div>
+    <div class="row"><span>Mạng nơ-ron — xác suất té ngã</span><b id="aiNn">—</b></div>
+    <div class="row"><span>Hồi quy logistic — xác suất té ngã</span><b id="aiLr">—</b></div>
+    <div class="row"><span>Cờ té ngã của chip C1001</span><b id="aiChip">—</b></div>
+    <div class="hint">
+      Ba model này chạy <b>song song để so sánh</b> và <b>không</b> tự gọi người thân: cảnh báo vẫn
+      do cờ té ngã của chip quyết định. Chi tiết trong <b>docs/huan_luyen_model.md</b>.
+      <div id="aiInfo" style="margin-top:6px;word-break:break-word"></div>
     </div>
   </div>
 
@@ -376,7 +378,7 @@ function stopPoll() { clearInterval(pollTimer); pollTimer = null; }
 
 /* ---------- Gửi thao tác ---------- */
 async function act(name) {
-  try { await fetch('/api/action?name=' + name, { method: 'POST' }); } catch (_) {}
+  try { await fetch('/api/action?name=' + name, { method: 'POST', headers: { 'X-OALPHA': '1' } }); } catch (_) {}
   if (!wsOk) setTimeout(async () => {
     try { render(await (await fetch('/api/status')).json()); } catch (_) {}
   }, 300);
@@ -386,7 +388,7 @@ function clearLog()   { if (confirm('Xóa toàn bộ nhật ký sự kiện?')) 
 
 /* ---------- Hiển thị ---------- */
 const yn = (v, t = 'Có', f = 'Không') => v ? t : f;
-const moveTxt = m => ['Không có', 'Nằm/ngồi im', 'Đang hoạt động'][m] ?? '—';
+const moveTxt = m => ['Không có', 'Nằm/ngồi im', 'Đang hoạt động'][m] || '—';
 const hhmmss = s => {
   const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
   return h ? `${h} giờ ${m} phút` : (m ? `${m} phút ${s % 60} giây` : `${s} giây`);
@@ -428,19 +430,8 @@ function render(d) {
   $('rFalls').textContent   = `${r.falls} lần (lỗi đọc: ${r.errors})`;
   $('rAge').textContent     = (r.ageMs / 1000).toFixed(1) + ' giây';
 
-  const w = d.wifi;
-  $('wUp').textContent   = w.up ? 'Đã kết nối' : (w.portal ? 'Đang phát AP cấu hình' : 'Mất kết nối');
-  $('wUp').className     = w.up ? 'good' : 'muted';
-  $('wSsid').textContent = w.ssid;
-  $('wRssi').textContent = w.up ? w.rssi + ' dBm' : '—';
-  $('wIp').textContent   = w.ip;
-  $('wSaved').textContent = (w.saved ?? 0) + ' mạng';
-
-  /* ---- Thẻ quản lý Wi-Fi ---- */
-  $('wCur').textContent  = w.up ? (w.ssid + ' · ' + w.rssi + ' dBm · ' + w.ip) : 'chưa kết nối';
-  $('wCur').className     = w.up ? 'good' : 'muted';
-  $('portalBox').style.display = w.portal ? '' : 'none';
-  $('portalAp').textContent    = w.ap || '—';
+  /* ---- Wi-Fi: thẻ "Mạng & cảnh báo" + thẻ Wi-Fi gọn (xem renderWifi) ---- */
+  renderWifi(d.wifi || {});
   $('tChan').textContent = d.telegram.channels || '—';
   $('tSent').textContent = d.telegram.sent;
   $('tPend').textContent = d.telegram.pending;
@@ -455,9 +446,27 @@ function render(d) {
     $('mSw').textContent    = d.mode.switches;
     $('mBlind').textContent = (d.mode.blindMs / 1000).toFixed(1) + ' giây';
   }
+  // Ba model AI tu huan luyen (xem src/core/fall_model.* va src/core/nn_model.*)
+  {
+    const nn = d.nn || {}, lr = d.model || {};
+    const pc = (x) => (x * 100).toFixed(1) + '%';
+    $('aiCard').style.display = (nn.ready || lr.ready) ? '' : 'none';
+    $('aiPost').textContent = nn.ready ? nn.postureName + ' (' + pc(nn.postureProb) + ')' : '—';
+    // Tu the "nam tren san" la dau hieu dang lo nhat -> to mau canh bao
+    $('aiPost').className = (nn.ready && nn.posture === 4) ? 'muted' : '';
+    $('aiNn').textContent = nn.ready
+      ? pc(nn.prob) + (nn.fall ? ' — model báo NGÃ' : '') : 'chưa huấn luyện';
+    $('aiNn').className = (nn.ready && nn.fall) ? 'muted' : '';
+    $('aiLr').textContent = lr.ready
+      ? pc(lr.prob) + (lr.fall ? ' — model báo NGÃ' : '') : 'chưa huấn luyện';
+    $('aiLr').className = (lr.ready && lr.fall) ? 'muted' : '';
+    $('aiChip').textContent = d.radar ? yn(d.radar.fall) : '—';
+    $('aiInfo').textContent = [nn.ready ? 'Mạng nơ-ron: ' + nn.info : '',
+                               lr.ready ? 'Hồi quy logistic: ' + lr.info : ''].filter(Boolean).join(' · ');
+  }
   if (d.vitals) {
     const v = d.vitals;
-    const sleepTxt = ['Ngủ sâu', 'Ngủ nông', 'Tỉnh', 'Không có người'][v.sleepState] ?? '—';
+    const sleepTxt = ['Ngủ sâu', 'Ngủ nông', 'Tỉnh', 'Không có người'][v.sleepState] || '—';
     $('vBed').textContent   = v.valid ? yn(v.inBed) : '—';
     $('vHr').textContent    = v.heartRate ? v.heartRate + ' nhịp/phút' : '—';
     $('vBr').textContent    = v.breatheValue ? v.breatheValue + ' lần/phút' : '—';
@@ -487,108 +496,185 @@ function render(d) {
                     d.state === 'NGHI_NGO_TE_NGA' ? '⚠️ ' : '') + 'Giám sát té ngã';
 }
 
+/* Nhật ký: mọi chuỗi đến từ thiết bị (nhãn, nguồn, trạng thái, ghi chú — ghi chú
+   có thể chứa SSID, là dữ liệu không tin cậy) chỉ vào DOM qua textContent,
+   không qua innerHTML. Bảng dựng bằng createElement, giữ nguyên class cũ. */
+function logCell(tr, v, cls) {
+  const td = document.createElement('td');
+  if (cls) td.className = cls;
+  if (v instanceof Node) td.appendChild(v);
+  else td.textContent = v == null ? '' : String(v);
+  tr.appendChild(td);
+  return td;
+}
+
 function renderLog(list) {
+  const body = $('log');
   if (!list.length) {
-    $('log').innerHTML = '<tr><td colspan="6" class="note">Chưa có sự kiện nào.</td></tr>';
+    const tr = document.createElement('tr');
+    logCell(tr, 'Chưa có sự kiện nào.', 'note').colSpan = 6;
+    body.textContent = '';
+    body.appendChild(tr);
     return;
   }
-  $('log').innerHTML = list.map(e => {
+  const frag = document.createDocumentFragment();
+  for (const e of list) {
     const t = e.ts > 1600000000
       ? new Date(e.ts * 1000).toLocaleString('vi-VN')
       : 'uptime ' + e.uptime + 's';
-    return `<tr><td>${e.id}</td><td>${t}</td>
-            <td><span class="tag t-${e.type}">${e.label}</span></td>
-            <td>${e.src}</td><td>${e.state}</td><td class="note">${e.note || ''}</td></tr>`;
-  }).join('');
+    const tag = document.createElement('span');
+    tag.className = 'tag t-' + String(e.type).replace(/[^\w-]/g, '');   // type chỉ dùng làm tên class
+    tag.textContent = e.label == null ? '' : String(e.label);
+    const tr = document.createElement('tr');
+    logCell(tr, e.id);
+    logCell(tr, t);
+    logCell(tr, tag);
+    logCell(tr, e.src);
+    logCell(tr, e.state);
+    logCell(tr, e.note || '', 'note');
+    frag.appendChild(tr);
+  }
+  body.textContent = '';
+  body.appendChild(frag);
 }
 
-/* ---------- Quản lý Wi-Fi ---------- */
-const esc = s => String(s).replace(/[&<>"]/g, c =>
-  ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+/* ---------- Wi-Fi (chỉ hiển thị; cấu hình nằm ở trang /wifi) ---------- */
+// SSID là dữ liệu KHÔNG tin cậy: điểm phát lạ gần đó có thể đặt tên chứa HTML/JS.
+// Vì vậy SSID chỉ được đưa vào trang qua textContent / createTextNode,
+// tuyệt đối không qua innerHTML hay thuộc tính onclick.
+// Firmware cũ có thể thiếu các trường mới (phase, trying, bars, attempt, apIp,
+// apClients…) nên mọi chỗ đọc đều phải chịu được undefined.
+const WIFI_SIG = ['Rất yếu', 'Yếu', 'Trung bình', 'Mạnh', 'Rất mạnh'];
+let wifiNetKey = '', wifiResKey = '';
 
-async function wifiLoadSaved() {
-  try {
-    const list = await (await fetch('/api/wifi/list')).json();
-    if (!list.length) {
-      $('savedList').innerHTML = 'Chưa lưu mạng nào. Thêm một mạng bên dưới.';
-      return;
-    }
-    $('savedList').innerHTML = list.map(n =>
-      `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f1f3f8">
-         <span style="color:var(--fg);font-weight:600">${esc(n.ssid)}</span>
-         <button class="b-gray" style="padding:6px 12px;font-size:13px" onclick="wifiRemove('${encodeURIComponent(n.ssid)}')">Xóa</button>
-       </div>`).join('');
-  } catch (_) { $('savedList').innerHTML = 'Không đọc được danh sách.'; }
+/** Số vạch sóng 0..4: ưu tiên trường bars của firmware, thiếu thì tự tính từ RSSI. */
+function wifiBars(w) {
+  if (typeof w.bars === 'number') return Math.max(0, Math.min(4, w.bars | 0));
+  const r = w.rssi;
+  return !r ? 0 : r >= -55 ? 4 : r >= -65 ? 3 : r >= -75 ? 2 : r >= -85 ? 1 : 0;
 }
 
-async function wifiScan() {
-  const btn = $('scanBtn');
-  btn.disabled = true; btn.textContent = 'Đang quét…';
-  $('scanList').innerHTML = 'Đang quét (mất vài giây)…';
-  try {
-    const nets = await (await fetch('/api/wifi/scan')).json();
-    if (!nets.length) { $('scanList').innerHTML = 'Không thấy mạng nào.'; }
-    else {
-      // Sắp theo cường độ giảm dần, bỏ trùng tên
-      const seen = new Set();
-      const rows = nets.sort((a, b) => b.rssi - a.rssi).filter(n => {
-        if (!n.ssid || seen.has(n.ssid)) return false; seen.add(n.ssid); return true;
-      });
-      $('scanList').innerHTML = rows.map(n =>
-        `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f1f3f8;cursor:pointer"
-              onclick="pickSsid('${encodeURIComponent(n.ssid)}')">
-           <span style="color:var(--fg);font-weight:600">${esc(n.ssid)} ${n.enc ? '🔒' : ''}</span>
-           <span>${n.rssi} dBm</span>
-         </div>`).join('');
-    }
-  } catch (_) { $('scanList').innerHTML = 'Quét thất bại.'; }
-  btn.disabled = false; btn.textContent = 'Quét mạng xung quanh';
+/** Cột sóng 4 vạch bằng SVG (dựng bằng createElementNS, không dùng innerHTML). */
+function wifiBarsSvg(n, rssi) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 20 16');
+  svg.setAttribute('width', '22');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Sóng ' + WIFI_SIG[n].toLowerCase() + ', ' + rssi + ' dBm');
+  const on = n >= 3 ? '#17a673' : n === 2 ? '#e8930c' : '#e23d4b';
+  for (let i = 0; i < 4; i++) {
+    const r = document.createElementNS(NS, 'rect');
+    r.setAttribute('x', i * 5 + 1);
+    r.setAttribute('y', 12 - i * 4);
+    r.setAttribute('width', 3);
+    r.setAttribute('height', 4 + i * 4);
+    r.setAttribute('rx', 1);
+    r.setAttribute('fill', i < n ? on : '#d3d9e6');
+    svg.appendChild(r);
+  }
+  return svg;
 }
 
-function pickSsid(enc) {
-  $('wSsidIn').value = decodeURIComponent(enc);
-  $('wPassIn').focus();
+/** [chữ, class] trạng thái Wi-Fi theo phase. Thiếu phase (firmware cũ) thì dựa up/portal. */
+function wifiPhase(w) {
+  if (w.trying) return ['Đang kết nối “' + w.trying + '”…', ''];
+  if (w.phase === 'connecting') return ['Đang kết nối…', ''];
+  if (w.up) return ['Đã kết nối', 'good'];
+  if (w.portal) return ['Đang phát AP cấu hình', ''];
+  return ['Mất kết nối', 'muted'];
 }
 
-async function wifiAdd() {
-  const ssid = $('wSsidIn').value.trim();
-  const pass = $('wPassIn').value;
-  if (!ssid) { alert('Hãy nhập tên Wi-Fi (SSID).'); return; }
-  try {
-    const body = 'ssid=' + encodeURIComponent(ssid) + '&pass=' + encodeURIComponent(pass);
-    const r = await fetch('/api/wifi/add', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    });
-    if (r.ok) {
-      $('wPassIn').value = '';
-      wifiLoadSaved();
-      alert('Đã lưu "' + ssid + '". Thiết bị đang thử kết nối.');
+/** Câu mô tả lần thử kết nối gần đây; null nếu không cần hiện (đã quá 120 giây). */
+function wifiAttemptBox(a) {
+  if (!a || !a.ssid) return null;
+  const q = '“' + a.ssid + '”';
+  if (a.result === 'trying') return ['info', 'Đang thử kết nối ' + q + '…'];
+  if (!(a.ago < 120)) return null;
+  // Mật khẩu mới hỏng, thiết bị đã khôi phục mật khẩu cũ (text của firmware kết
+  // thúc bằng " — đã giữ lại mật khẩu cũ").
+  if (a.rolledBack === true)
+    return ['warn', 'Đổi mật khẩu ' + q + ' không thành công: ' + (a.text || 'đã giữ lại mật khẩu cũ') + '.'];
+  switch (a.result) {
+    case 'ok':         return ['ok', 'Đã kết nối ' + q + '.'];
+    case 'wrong_pass': return ['bad', 'Không kết nối được ' + q + ': sai mật khẩu. Vào “Quản lý Wi-Fi” để nhập lại.'];
+    case 'not_found':  return ['warn', 'Không thấy mạng ' + q + '. ESP32 chỉ bắt được Wi-Fi 2,4 GHz.'];
+    default:           return ['bad', 'Không kết nối được ' + q + (a.text ? ': ' + a.text : '.')];
+  }
+}
+
+const WIFI_BOX_STYLE = {
+  info: 'background:var(--brand-soft);color:#1e3a8a',
+  ok:   'background:var(--ok-soft);color:#0b6e4b',
+  warn: 'background:var(--warn-soft);color:#6b4a00',
+  bad:  'background:var(--bad-soft);color:#b4232f'
+};
+
+function renderWifi(w) {
+  const up = !!w.up;
+  const n = wifiBars(w);
+  const ssid = up && w.ssid && w.ssid !== '-' ? w.ssid : '';
+  const ip = up && w.ip && w.ip !== '-' ? w.ip : '';
+  const [phaseTxt, phaseCls] = wifiPhase(w);
+
+  // Thẻ "Mạng & cảnh báo"
+  $('wUp').textContent    = phaseTxt;
+  $('wUp').className      = phaseCls;
+  $('wSsid').textContent  = ssid || '—';
+  $('wRssi').textContent  = up ? w.rssi + ' dBm · ' + WIFI_SIG[n] : '—';
+  $('wIp').textContent    = ip || '—';
+  $('wSaved').textContent = (w.saved || 0) + ' mạng';
+
+  // Thẻ Wi-Fi gọn
+  $('wfPhase').textContent = phaseTxt;
+  $('wfPhase').className   = phaseCls;
+  $('wfIp').textContent    = ip || '—';
+
+  // Chỉ dựng lại cột sóng khi có thay đổi (gói WebSocket tới mỗi giây)
+  const netKey = [up, ssid, n, w.rssi, w.channel].join('|');
+  if (netKey !== wifiNetKey) {
+    wifiNetKey = netKey;
+    const el = $('wfNet');
+    el.textContent = '';
+    if (up) {
+      el.appendChild(wifiBarsSvg(n, w.rssi));
+      el.appendChild(document.createTextNode(
+        ssid + ' · ' + w.rssi + ' dBm' + (w.channel ? ' · kênh ' + w.channel : '')));
     } else {
-      const j = await r.json().catch(() => ({}));
-      alert('Không lưu được: ' + (j.err || r.status));
+      el.textContent = 'Chưa kết nối';
     }
-  } catch (_) { alert('Lỗi gửi yêu cầu.'); }
-}
+  }
 
-async function wifiRemove(enc) {
-  const ssid = decodeURIComponent(enc);
-  if (!confirm('Xóa mạng "' + ssid + '" khỏi thiết bị?')) return;
-  try {
-    const body = 'ssid=' + encodeURIComponent(ssid);
-    await fetch('/api/wifi/remove', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    });
-    wifiLoadSaved();
-  } catch (_) { alert('Lỗi gửi yêu cầu.'); }
+  // Hộp vàng khi đang phát Wi-Fi cấu hình (AP)
+  $('wfAp').style.display = w.portal ? '' : 'none';
+  if (w.portal) {
+    $('wfApName').textContent = w.ap ? '“' + w.ap + '”' : '—';
+    $('wfApIp').textContent   = w.apIp || '192.168.4.1';
+    $('wfApCli').textContent  = typeof w.apClients === 'number'
+      ? ' (' + w.apClients + ' máy đang nối)' : '';
+  }
+
+  // Kết quả lần thử gần đây. Khung role="status" chỉ được cập nhật khi nội dung
+  // đổi, để trình đọc màn hình không đọc lại mỗi giây.
+  const box = wifiAttemptBox(w.attempt);
+  const resKey = box ? box[0] + '|' + box[1] : '';
+  if (resKey !== wifiResKey) {
+    wifiResKey = resKey;
+    const res = $('wfRes');
+    res.textContent = '';
+    if (box) {
+      const div = document.createElement('div');
+      div.className = 'hint';
+      div.style.cssText = WIFI_BOX_STYLE[box[0]] + ';border-radius:12px;padding:10px 12px;font-weight:600';
+      div.textContent = box[1];
+      res.appendChild(div);
+    }
+  }
 }
 
 connect();
 startPoll();          /* hỏi ngay một lần để trang có dữ liệu tức thì */
-wifiLoadSaved();      /* nạp danh sách mạng đã lưu */
 </script>
 </body>
 </html>

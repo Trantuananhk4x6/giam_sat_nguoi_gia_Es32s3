@@ -13,4 +13,7 @@ export async function register(): Promise<void> {
   // Bot Telegram hai chiều (tự nằm im nếu chưa khai TELEGRAM_BOT_TOKEN)
   const { ensureTelegramBot } = await import("./lib/telegram-bot");
   ensureTelegramBot();
+  // Bot Zalo hai chiều (tự nằm im nếu chưa khai ZALO_BOT_TOKEN)
+  const { ensureZaloBot } = await import("./lib/zalo-bot");
+  ensureZaloBot();
 }

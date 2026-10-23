@@ -157,7 +157,7 @@ export type Overview = {
   timeline: FriendlyEvent[];
   vitals: { heartRate: number; breatheValue: number; sleepState: string; inBed: boolean } | null;
   recentMessages: Interaction[];
-  device: { radarOk: boolean; wifiOk: boolean; telegramPoller: string | null };
+  device: { radarOk: boolean; wifiOk: boolean; telegramPoller: string | null; zaloPoller: string | null };
 };
 
 const SLEEP = ["ngủ sâu", "ngủ nông", "tỉnh", "không có người"];
@@ -279,6 +279,7 @@ export async function getOverview(): Promise<Overview> {
       radarOk: Boolean(st?.radar.online),
       wifiOk: Boolean(st?.wifi.up),
       telegramPoller: st?.telegram.poller ?? null,
+      zaloPoller: st?.zalo?.poller ?? null,
     },
   };
 }

@@ -9,7 +9,7 @@
  *
  * Chạy ở máy chủ nghĩa là lịch sử vẫn được ghi kể cả khi không mở trình duyệt.
  * Nếu tắt laptop thì hệ thống cảnh báo vẫn hoạt động bình thường, vì cảnh báo
- * do chính ESP32 gửi qua Telegram, không đi qua dashboard.
+ * do chính ESP32 gửi qua Telegram / Zalo, không đi qua dashboard.
  */
 import { fetchEvents, fetchFeatures, fetchStatus, eventKey, friendlyError } from "./esp32";
 import { decodeRow } from "./features";
@@ -43,6 +43,8 @@ const g = globalThis as typeof globalThis & {
   __fallPoller?: PollerState;
   /** Do lib/telegram-bot.ts gán: true khi bot muốn giữ quyền đọc tin Telegram */
   __tgWantsLease?: () => boolean;
+  /** Do lib/zalo-bot.ts gán: true khi bot muốn giữ quyền đọc tin Zalo */
+  __zaloWantsLease?: () => boolean;
 };
 
 function state(): PollerState {
@@ -107,10 +109,14 @@ async function tick(schedule: boolean): Promise<void> {
   const settings = await getSettings();
 
   try {
-    // Bot Telegram của dashboard đang muốn đọc tin -> xin ESP32 nhường quyền.
+    // Bot Telegram / Zalo của dashboard đang muốn đọc tin -> xin ESP32 nhường quyền.
     // Thời hạn gấp vài lần chu kỳ hỏi để một lượt hỏi trễ không làm hết hạn.
-    const lease = g.__tgWantsLease?.() ? Math.max(30, Math.ceil((settings.pollMs * 4) / 1000)) : 0;
-    const status = await fetchStatus(settings.esp32Host, lease);
+    const leaseS = Math.max(30, Math.ceil((settings.pollMs * 4) / 1000));
+    const status = await fetchStatus(
+      settings.esp32Host,
+      g.__tgWantsLease?.() ? leaseS : 0,
+      g.__zaloWantsLease?.() ? leaseS : 0,
+    );
     s.status = status;
     s.online = true;
     s.error = null;

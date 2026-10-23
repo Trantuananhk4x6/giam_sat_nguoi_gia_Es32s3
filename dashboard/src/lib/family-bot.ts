@@ -1,11 +1,12 @@
 /**
- * "Bộ não" chung khi NGƯỜI NHÀ tương tác — Telegram và trang web dùng cùng một
- * đường xử lý nên trả lời giống nhau và đều được ghi vào nhật ký tương tác.
+ * "Bộ não" chung khi NGƯỜI NHÀ tương tác — Telegram, Zalo và trang web dùng cùng
+ * một đường xử lý nên trả lời giống nhau và đều được ghi vào nhật ký tương tác.
  *
  *   /hoitham <lời nhắn>  AI biên tập thành câu thông báo -> đọc giọng -> loa ESP32
  *   /tinhhinh            tình hình ngay lúc này (không cần AI, luôn trả lời được)
  *   /homnay              AI tóm tắt cả ngày
  *   /hoi <câu hỏi>       hỏi trợ lý (trong nhóm Telegram phải dùng lệnh)
+ *   /chatid              báo mã chat (để khai vào danh sách được phép)
  *   tin nhắn thường      hỏi trợ lý, ví dụ "hôm nay mẹ thế nào?"
  */
 import { sendSay } from "./esp32";
@@ -16,7 +17,7 @@ import { addInteraction, getSettings, newId } from "./store";
 import { normalizeForSpeech, pickVoice, synthesizeSpeakerWav } from "./tts";
 import type { Interaction, SpeakStatus } from "./types";
 
-export type Channel = "telegram" | "web";
+export type Channel = "telegram" | "zalo" | "web";
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 export type BotInput = {
@@ -24,7 +25,7 @@ export type BotInput = {
   from: string;
   chatId: string | null;
   text: string;
-  /** Lịch sử ngắn của khung chat trên web (Telegram không gửi lịch sử) */
+  /** Lịch sử ngắn của khung chat trên web (Telegram / Zalo không gửi lịch sử) */
   history?: ChatTurn[];
 };
 
@@ -83,7 +84,7 @@ QUY TẮC BẮT BUỘC:
 - Không chẩn đoán bệnh, không khuyên dùng thuốc. Sinh hiệu là ước lượng bằng radar, không phải thiết bị y tế.
 - Trả lời 2-5 câu, văn xuôi tiếng Việt có dấu, ấm áp, rõ ràng. Không markdown, không gạch đầu dòng. Được dùng tối đa 1 emoji ở đầu câu.
 - Diễn đạt bằng lời thường cho người không rành kỹ thuật: nói "đi lại khá nhiều", "nằm nghỉ yên" thay vì đọc con số kiểu 42/100; không nhắc chi tiết kỹ thuật (khởi động lại, Wi-Fi...) trừ khi nó làm mất theo dõi.
-- Muốn nhắn gì cho ${call} nghe qua loa thì hướng dẫn: ${channel === "telegram" ? "gõ /hoitham <lời nhắn>" : "gõ /hoitham <lời nhắn> hoặc dùng trang Gửi lời nhắn"}.`;
+- Muốn nhắn gì cho ${call} nghe qua loa thì hướng dẫn: ${channel === "web" ? "gõ /hoitham <lời nhắn> hoặc dùng trang Gửi lời nhắn" : "gõ /hoitham <lời nhắn>"}.`;
 }
 
 async function answerQuestion(input: BotInput, question: string, o: Overview): Promise<{ text: string; ai: boolean }> {

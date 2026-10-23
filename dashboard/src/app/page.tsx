@@ -10,7 +10,7 @@ import { sendAction } from "@/components/useLive";
 import { Ic, IcKey, type IconName } from "@/components/Icon";
 import type { Overview } from "@/lib/health";
 
-type OverviewRes = Overview & { series: { t: number; range: number; present: number }[] };
+type OverviewRes = Overview & { series: { t: number; range: number; present: number }[]; zaloBotState?: string | null };
 type Comment = { text: string; ai: boolean; at: number; level: string };
 
 const HERO_ICON: Record<string, IconName> = {
@@ -103,6 +103,9 @@ export default function TongQuanPage() {
   const call = o?.call ?? "người thân";
   const C = capFirst(call);
   const alerting = o?.state === "KHAN_CAP" || o?.state === "NGHI_NGO_TE_NGA";
+  // Zalo chỉ hiện khi đã cài (firmware đang đọc tin Zalo, hoặc dashboard đã khai token)
+  const zaloAi = o?.device.zaloPoller === "dashboard" || o?.zaloBotState === "dang-doc";
+  const zaloOn = Boolean(o?.zaloBotState || (o?.device.zaloPoller && o.device.zaloPoller !== "off"));
   const series = (o?.series ?? []).map((p) => ({ t: hm(p.t), v: p.range }));
 
   return (
@@ -274,7 +277,7 @@ export default function TongQuanPage() {
             </div>
             {o && o.recentMessages.length === 0 ? (
               <div className="empty">
-                Chưa có lời nhắn nào. Nhắn <b>/hoitham</b> cho bot Telegram hoặc dùng trang Gửi lời nhắn.
+                Chưa có lời nhắn nào. Nhắn <b>/hoitham</b> cho bot {zaloOn ? "Telegram / Zalo," : "Telegram"} hoặc dùng trang Gửi lời nhắn.
               </div>
             ) : (
               (o?.recentMessages ?? []).slice(0, 3).map((m) => (
@@ -308,9 +311,22 @@ export default function TongQuanPage() {
                       : "Chat Telegram hai chiều chưa bật"}
                 </span>
               </div>
+              {zaloOn && (
+                <div className={`status-item ${zaloAi || o?.device.zaloPoller === "device" ? "ok" : "warn"}`}>
+                  <span className="dot" />{" "}
+                  <span>
+                    {zaloAi
+                      ? "Trợ lý AI đang trả lời Zalo"
+                      : o?.device.zaloPoller === "device"
+                        ? "Thiết bị tự trả lời Zalo"
+                        : "Bot Zalo đang kết nối…"}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="sub" style={{ marginTop: 10 }}>
-              {C} ngã hay bấm SOS thì thiết bị tự báo Telegram cho người nhà, kể cả khi máy tính này tắt.
+              {C} ngã hay bấm SOS thì thiết bị tự báo {zaloOn ? "Telegram và Zalo" : "Telegram"} cho người nhà, kể
+              cả khi máy tính này tắt.
             </div>
           </div>
         </div>

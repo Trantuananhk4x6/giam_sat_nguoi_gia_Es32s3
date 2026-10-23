@@ -17,8 +17,8 @@ giám sát tự phục vụ.
                                    └─────────┬──────────┘
                                              │ Wi-Fi + HTTPS
                                              ▼
-                              Telegram + Email (Resend) + Zalo OA → người thân
-                              (Telegram còn chat hai chiều: hỏi là bot trả lời)
+                              Telegram + Zalo Bot + Email (Resend) → người thân
+                              (Telegram, Zalo còn chat hai chiều: hỏi là bot trả lời)
 ```
 
 ---
@@ -27,7 +27,7 @@ Hệ thống gồm **hai phần chạy độc lập nhau**:
 
 | Phần | Ngôn ngữ | Chạy ở đâu | Vai trò |
 |---|---|---|---|
-| **Firmware** (thư mục gốc) | C++ | ESP32-S3 | Toàn bộ chức năng an toàn: đọc radar, loa hỏi thăm, nút bấm, gửi cảnh báo đa kênh (Telegram + Email + Zalo), chat hai chiều qua Telegram, trang web cơ bản |
+| **Firmware** (thư mục gốc) | C++ | ESP32-S3 | Toàn bộ chức năng an toàn: đọc radar, loa hỏi thăm, nút bấm, gửi cảnh báo đa kênh (Telegram + Zalo + Email), chat hai chiều qua Telegram và Zalo, trang web cơ bản |
 | **Dashboard** ([dashboard/](dashboard/)) | TypeScript / Next.js | Laptop | Lưu lịch sử dài hạn + đo và tính số liệu thực nghiệm cho báo cáo |
 
 Dashboard **không nằm trong đường đi của cảnh báo** — tắt laptop thì hệ thống an
@@ -43,7 +43,7 @@ toàn vẫn chạy nguyên vẹn. Xem [dashboard/README.md](dashboard/README.md)
 | `lib/DFRobot_HumanDetection/` | Thư viện radar chính chủ, đã tải sẵn vào repo (build được khi không có mạng) |
 | `dashboard/` | Ứng dụng web phân tích số liệu (Next.js) |
 | `include/config.h` | **Toàn bộ thông số chỉnh được**: chân cắm, thời gian chờ, độ nhạy |
-| `include/secrets.h` | Wi-Fi, token Telegram, API key Resend (email), Zalo OA, tên người được giám sát (bạn tự tạo) |
+| `include/secrets.h` | Wi-Fi, token Telegram, token Zalo Bot, API key Resend (email), tên người được giám sát (bạn tự tạo) |
 | `src/main.cpp` | Điểm vào: máy trạng thái chính + setup/loop, điều phối các layer |
 | **`src/core/`** | **Lõi nghiệp vụ — không phụ thuộc phần cứng cụ thể** |
 | `src/core/app_types.h` | Kiểu dữ liệu dùng chung (máy trạng thái, sự kiện, snapshot) |
@@ -56,8 +56,10 @@ toàn vẫn chạy nguyên vẹn. Xem [dashboard/README.md](dashboard/README.md)
 | `src/hal/hmi.*` | Nút nhấn (chống dội), 3 LED, còi buzzer |
 | `src/hal/rf_remote.*` | Nhận nút SOS đeo tay qua sóng 433 MHz |
 | **`src/net/`** | **Mạng** |
-| `src/net/notifier.*` | Gửi cảnh báo đa kênh (Telegram + Email Resend + Zalo OA) + hàng đợi chống mất tin khi rớt mạng |
+| `src/net/notifier.*` | Gửi cảnh báo đa kênh (Telegram + Zalo Bot + Email Resend) + hàng đợi chống mất tin khi rớt mạng; chat hai chiều Telegram / Zalo |
 | `src/net/web_ui.*` | Máy chủ web + WebSocket + các API |
+| `src/net/wifi_mgr.*` | Bộ quản lý đa Wi-Fi **phi chặn**: lưu tối đa 8 mạng (NVS), tự nối mạng tốt nhất, tự bật Wi-Fi cấu hình + captive portal |
+| `src/net/wifi_portal_page.h` | Trang cấu hình Wi-Fi `/wifi`, nhúng sẵn trong firmware (không cần `uploadfs`) |
 | **`src/storage/`** | **Lưu trữ** |
 | `src/storage/event_log.*` | Nhật ký sự kiện trong LittleFS, xuất CSV cho Excel |
 | `include/model_weights.h` | Trọng số model — sinh ra từ notebook `tools/kaggle/huan_luyen_model_te_nga.ipynb` |
@@ -122,11 +124,16 @@ copy include\secrets.h.example include\secrets.h
 ```
 
 Mở `include/secrets.h` và điền:
-- `WIFI_SSID` / `WIFI_PASSWORD` — ESP32 chỉ bắt được **Wi-Fi 2,4 GHz**.
+- `WIFI_SSID` / `WIFI_PASSWORD` — **không bắt buộc**, chỉ là mạng "mồi" nạp vào
+  thiết bị ở lần chạy đầu. Để nguyên giá trị mẫu cũng được: thiết bị sẽ tự phát
+  Wi-Fi cấu hình để bạn chọn mạng bằng điện thoại (xem mục 3b). ESP32 chỉ bắt
+  được **Wi-Fi 2,4 GHz**.
 - `TELEGRAM_BOT_TOKEN` — chat với **@BotFather** trên Telegram → `/newbot`.
 - `TELEGRAM_CHAT_ID` — chat một câu với bot vừa tạo, rồi mở
   `https://api.telegram.org/bot<TOKEN>/getUpdates` và lấy số trong `"chat":{"id":...}`.
   Muốn gửi vào nhóm gia đình: thêm bot vào nhóm, chat một câu, chat id sẽ là **số âm**.
+  Nhiều người nhận: ghi các chat id cách nhau dấu phẩy, ví dụ `"111111111,222222222"`.
+  Mỗi người nhận một tin riêng; ai cũng phải nhắn cho bot một câu trước.
 - `PATIENT_NAME`, `DEVICE_PLACE` — hiện trong nội dung tin cảnh báo.
 
 **Các kênh cảnh báo (bật kênh nào tùy bạn — để trống thì kênh đó tắt):**
@@ -136,10 +143,21 @@ Mở `include/secrets.h` và điền:
   **Lưu ý:** khi chưa xác minh tên miền riêng, Resend chỉ cho gửi **từ**
   `onboarding@resend.dev` và **tới chính email đã đăng ký tài khoản**; muốn gửi
   tới email người thân bất kỳ thì phải xác minh tên miền rồi đổi `EMAIL_FROM`.
-- **Zalo** (tùy chọn, nâng cao): Zalo **không có API cho tài khoản cá nhân** —
-  chỉ **Zalo Official Account (OA)** mới gửi tin hợp lệ. Gửi qua tài khoản cá nhân
-  bằng công cụ không chính thức rất dễ bị **khóa tài khoản** nên firmware **không
-  hỗ trợ**. Có OA + access token thì điền `ZALO_OA_TOKEN`, `ZALO_USER_ID`.
+- **Zalo Bot** (tùy chọn, dùng Zalo **cá nhân** của người nhà, giống bot Telegram):
+  dùng [Zalo Bot Platform](https://bot.zapps.me/docs/) — nền tảng bot **chính thức**
+  của Zalo, miễn phí, tạo ngay từ tài khoản Zalo cá nhân, **không cần Zalo OA**
+  doanh nghiệp. (Không dùng công cụ "tự động hóa" tài khoản cá nhân không chính
+  thức như zca-js/zlapi — rất dễ bị **khóa nick**.)
+  1. Mở Zalo, tìm Official Account **Zalo Bot Manager** → **Tạo bot** (tên phải bắt
+     đầu bằng "Bot", ví dụ "Bot OALPHA"). Zalo nhắn **Bot Token** về tài khoản của
+     bạn → dán vào `ZALO_BOT_TOKEN`.
+  2. Nạp firmware, rồi **mỗi người nhà nhắn cho bot một câu bất kỳ**: bot trả lời
+     kèm *mã chat Zalo* của người đó (chuỗi kiểu `3becaa50ae12474c1e03`). Ghi vào
+     `ZALO_CHAT_ID` (nhiều người cách nhau dấu phẩy) rồi nạp lại.
+  3. Chép token + mã chat sang `dashboard/.env.local` để dashboard trả lời Zalo bằng AI.
+
+  Khác Telegram: tin Zalo là văn bản thuần (firmware tự bỏ thẻ HTML), tối đa 2000
+  ký tự; người chưa từng nhắn cho bot thì bot không gửi tới được.
 
 Mỗi tin cảnh báo được gửi **song song** qua mọi kênh đang bật. Mỗi tin trong hàng
 đợi mang một **mặt nạ kênh** (bitmask) cho biết kênh nào còn phải gửi; gửi xong
@@ -173,6 +191,94 @@ pio device monitor     :: xem log, Ctrl+C để thoát
 
 **Bước 5 — Mở trang giám sát.** Cổng serial in ra địa chỉ IP. Dùng điện thoại
 cùng mạng Wi-Fi, mở `http://<địa-chỉ-IP>/` hoặc `http://canhbao-tenga.local/`.
+Thiết bị chưa vào được mạng nào thì sau 25 giây nó tự phát Wi-Fi cấu hình
+`canhbao-tenga` để bạn chọn mạng — xem mục 3b.
+
+---
+
+## 3b. Wi-Fi: nhiều mạng & cấu hình tại chỗ
+
+Thiết bị **lưu tối đa 8 mạng Wi-Fi** (trong NVS) và tự nối mạng tốt nhất đang có
+mặt. Mang tới nhà khác **không phải sửa `secrets.h`, không phải nạp lại firmware**:
+chọn mạng mới bằng điện thoại là xong. Mã nguồn ở `src/net/wifi_mgr.*`, thông số
+ở khối *BỘ QUẢN LÝ ĐA WI-FI* trong `include/config.h`.
+
+**Không chặn vòng lặp chính.** Bản cũ dùng `WiFiMulti`: mỗi lần mất mạng nó quét
+đồng bộ 2–3 giây rồi đứng chờ tới 5 giây, nút OK/SOS và máy trạng thái té ngã đứng
+theo. Bản mới quét và nối hoàn toàn phi chặn:
+
+- khởi động: thử thẳng **mạng dùng gần nhất**, không quét trước;
+- mất mạng: thử nhanh lại **đúng mạng đó**, không được thì quét lại và thử các mạng
+  đã lưu, chu kỳ giãn dần **3 → 30 giây**.
+
+### Mang tới nơi mới / chưa có mạng nào
+
+Sau **25 giây** không nối được mạng nào (`CONFIG_PORTAL_AFTER_MS`), thiết bị tự
+phát **Wi-Fi cấu hình** tên `canhbao-tenga` (`AP_SSID`), mật khẩu `12345678`
+(`AP_PASSWORD` — **phải đổi** trong `include/config.h` trước khi dùng thật).
+
+1. Điện thoại nối vào `canhbao-tenga` → trang chọn mạng **tự bật lên** (captive
+   portal). Không tự bật thì mở `http://192.168.4.1/`.
+2. Chọn mạng, nhập mật khẩu. Trang báo kết quả ngay: sai mật khẩu, không thấy mạng,
+   hoặc nhắc rằng ESP32 chỉ bắt **Wi-Fi 2,4 GHz**.
+3. Nối được thì Wi-Fi cấu hình tự tắt sau khoảng **60 giây** (5 giây nếu không còn
+   máy nào nối vào), đủ để điện thoại kịp xem địa chỉ IP mới.
+
+### Quản lý Wi-Fi trong mạng LAN
+
+Dùng trang **`/wifi` trên thiết bị** (`http://canhbao-tenga.local/wifi`) hoặc trang
+**Wi-Fi thiết bị** trên dashboard (`/wifi`):
+
+- **quét** mạng xung quanh, **lưu** mạng mới, **chuyển** sang mạng đã lưu, **xóa** mạng;
+- **đổi mật khẩu**: thiết bị thử ngay, sai thì tự giữ mật khẩu cũ;
+- **bật Wi-Fi cấu hình bằng tay** để trình diễn (đang có mạng thì tự tắt sau 10 phút).
+
+Dashboard chỉ điều khiển được thiết bị khi **laptop chạy dashboard và thiết bị cùng
+mạng**. Chuyển thiết bị sang mạng khác thì đổi địa chỉ ESP32 trong trang *Cài đặt*
+của dashboard.
+
+### Bảo mật
+
+- Các lệnh ghi Wi-Fi **chỉ nhận POST kèm header `X-OALPHA`**, nên trang web lạ
+  không giả mạo được lệnh đổi Wi-Fi của thiết bị.
+- Mật khẩu Wi-Fi **không bao giờ** trả về qua API hay in ra Serial.
+- Triển khai thật: ngoài đổi `AP_PASSWORD`, nên đặt `WEB_USER` / `WEB_PASS` trong
+  `secrets.h`. Không đặt thì ai vào được mạng của thiết bị (LAN hoặc Wi-Fi cấu
+  hình) là mở được trang đổi Wi-Fi.
+- Hạn chế đã biết: tên mạng (SSID) có byte không phải UTF-8 hiển thị thành `?` và
+  không thêm/xóa được qua web.
+
+### Nạp code, giả lập và số liệu
+
+Phải nạp **cả** `pio run -t upload` (firmware) **và** `pio run -t uploadfs` (trang
+`data/index.html` mới). Trang `/wifi` nằm sẵn trong firmware nên vẫn cấu hình
+Wi-Fi được kể cả khi chưa `uploadfs`.
+
+**Chưa có board?** Bộ giả lập `dashboard/tools/gia-lap-esp32.mjs` giả lập cả API
+Wi-Fi mới; nhập mật khẩu `saimatkhau` để giả lập sai mật khẩu. Chạy lệnh dưới rồi
+nhập địa chỉ `localhost:8080` trong *Cài đặt* của dashboard:
+
+```bat
+cd dashboard
+node tools\gia-lap-esp32.mjs     :: mặc định cổng 8080; thêm số cổng ở cuối để đổi
+```
+
+**Số liệu cho báo cáo:** `GET /api/wifi/state` có trường `loopMaxUs` = thời gian
+lớn nhất của một lần chạy `WifiMgr::loop()` trong 60 giây gần nhất (µs). Ghi con
+số này sau mỗi bài thử dưới đây để chứng minh vòng lặp chính không bị chặn.
+
+**Bài thử trên phần cứng:**
+
+- [ ] Nhập **sai mật khẩu** → trang báo sai mật khẩu; đang có mạng cũ thì thiết bị
+      tự quay về mạng đó.
+- [ ] **Tắt router 10 giây rồi bật** → thiết bị tự nối lại; suốt lúc mất mạng nút
+      OK/SOS vẫn phản hồi ngay.
+- [ ] **Rút điện cả router lẫn thiết bị**, cho router lên sau → thiết bị tự nối khi
+      router lên.
+- [ ] Mang ra **chỗ không có mạng quen** → sau 25 giây có Wi-Fi `canhbao-tenga`;
+      thử captive portal trên **Android, iPhone và Windows**.
+- [ ] **Đổi mật khẩu sai cho mạng đang dùng** → thiết bị tự quay lại mạng đó bằng
+      mật khẩu cũ.
 
 ---
 
@@ -219,9 +325,9 @@ Ba tình huống đặc biệt mà bản kế hoạch yêu cầu xử lý đều
 - **Bấm SOS bất kỳ lúc nào** → được kiểm tra trước mọi trạng thái khác, gửi cảnh báo
   ngay, không cần chờ radar.
 
-### Hỏi thăm qua Telegram (chat hai chiều)
+### Hỏi thăm qua Telegram / Zalo (chat hai chiều)
 
-Người nhà có thể **nhắn thẳng cho bot** để hỏi tình hình, không cần mở trang web:
+Người nhà có thể **nhắn thẳng cho bot** (Telegram hoặc Zalo) để hỏi tình hình, không cần mở trang web:
 
 > — *"dạo này ông bà thế nào?"*
 > — 🤖 *"✅ Mọi thứ bình thường. Bà Nguyễn Thị A đang ở trong phòng, nghỉ ngơi yên
@@ -232,12 +338,27 @@ Các câu bot hiểu: **tình hình**, **số liệu**, **vị trí**, hoặc **
 hướng dẫn. Firmware hỏi tin mới mỗi `TELEGRAM_POLL_MS` (mặc định 4 giây) qua
 `getUpdates`.
 
-**Bảo mật:** bot **chỉ trả lời đúng `TELEGRAM_CHAT_ID`** đã khai trong `secrets.h`.
+**Bảo mật:** bot **chỉ trả lời các chat có trong `TELEGRAM_CHAT_ID`** (một hoặc nhiều chat id, cách nhau dấu phẩy) đã khai trong `secrets.h`.
 Người lạ biết tên bot nhắn vào cũng bị bỏ qua, không lộ thông tin người thân.
 
 > ⚠️ Để nhận được tin, **người nhà phải nhắn cho bot trước một lần** (Telegram
 > không cho bot nhắn tới người chưa từng chat). Muốn tắt hẳn chat hai chiều: đặt
 > `TELEGRAM_POLL_MS = 0` trong `config.h`.
+
+**Zalo** trả lời y hệt (cùng hàm dựng câu trả lời), chỉ khác cách đọc tin: Zalo
+`getUpdates` không có *offset* và mỗi lượt trả một tin, nên firmware chạy một
+**task riêng** (ưu tiên thấp, core 0) **long polling** — máy chủ Zalo giữ kết nối
+tối đa `ZALO_POLL_TIMEOUT_S` (20 giây), có tin là trả ngay — vừa trả lời gần như
+tức thì, vừa không chen vào hàng đợi cảnh báo. Chỉ trả lời các chat trong
+`ZALO_CHAT_ID`; **người lạ được báo lại mã chat của họ** (tối đa 1 lần / 10 phút),
+nhờ vậy người nhà mới tự lấy được mã. Tin chờ quá 10 phút (thiết bị mất mạng)
+thì bỏ qua. Muốn tắt nhận tin Zalo: `ZALO_POLL_TIMEOUT_S = 0`.
+
+Khi laptop chạy dashboard, dashboard "thuê" quyền đọc tin của cả hai bot
+(`GET /api/status?tg=<giây>&zl=<giây>`) để trả lời bằng AI; tắt laptop thì ESP32
+tự trả lời lại. Riêng Zalo, tin đã giao cho bên nào là bên đó phải xử lý (không
+trả lại được), nên ESP32 chỉ báo `zalo.poller = "dashboard"` khi đã **thật sự
+dừng** lượt chờ tin đang dở — hai bên không bao giờ cùng chờ tin một lúc.
 
 **Vì sao chia nhiều task?** Thư viện `DFRobot_HumanDetection` làm việc kiểu hỏi–đáp
 qua UART, bên trong có `delay(50)` cho mỗi byte và chờ tối đa 5 giây mỗi lệnh; riêng
@@ -263,7 +384,10 @@ trễ cũng không bỏ sót lần nào.
 | `/api/status` | JSON trạng thái hiện tại |
 | `/api/events` | JSON các sự kiện gần nhất |
 | `/api/export.csv` | **Tải toàn bộ nhật ký dạng CSV để mở bằng Excel** |
-| `/api/action?name=...` | `iamok`, `sos`, `simfall`, `present_on`, `present_off`, `testvoice`, `testtg`, `clearlog` |
+| `/wifi` | Trang cấu hình Wi-Fi (nằm sẵn trong firmware) — xem mục 3b |
+| `/api/wifi/state`, `/api/wifi/scan`, `/api/wifi/list` | GET: trạng thái Wi-Fi (có `loopMaxUs`), mạng xung quanh, mạng đã lưu — không bao giờ kèm mật khẩu |
+| `/api/wifi/add`, `/remove`, `/connect`, `/portal` | **Chỉ POST kèm header `X-OALPHA`**: lưu / đổi mật khẩu, xóa, chuyển mạng, bật/tắt Wi-Fi cấu hình |
+| **POST kèm header `X-OALPHA`** `/api/action?name=...` | `iamok`, `sos`, `simfall`, `present_on`, `present_off`, `testvoice`, `testtg`, `clearlog` |
 
 Muốn đặt mật khẩu cho trang web khi demo: điền `WEB_USER` / `WEB_PASS` trong `secrets.h`.
 
@@ -307,9 +431,12 @@ xuất CSV. Xem [dashboard/README.md](dashboard/README.md).
 | Loa rè | Giảm `AUDIO_VOLUME_PERCENT`; thiếu tụ lọc nguồn cho MAX98357A |
 | Telegram `HTTP 401` | Sai `TELEGRAM_BOT_TOKEN` |
 | Telegram `HTTP 400` | Sai `TELEGRAM_CHAT_ID` (nhóm phải là số âm) |
+| Telegram `HTTP 403` | Người nhận chưa nhắn cho bot lần nào (bấm Start) hoặc đã chặn bot. Firmware bỏ người đó cho tin này, vẫn gửi cho những người khác |
 | Email `HTTP 401` | Sai `RESEND_API_KEY` |
 | Email `HTTP 403` | Chưa xác minh tên miền, hoặc `EMAIL_TO` khác email đã đăng ký Resend |
-| Zalo `HTTP 401` | Sai/hết hạn `ZALO_OA_TOKEN` (access token OA có thời hạn, cần làm mới) |
+| Zalo `loi 401` / `404` (Kết quả gửi gần nhất, hoặc `zalo.last` = `getUpdates loi 401`) | Sai `ZALO_BOT_TOKEN` (chép lại token Zalo Bot Manager đã nhắn) |
+| Zalo `loi 400` / `403` | Sai mã chat trong `ZALO_CHAT_ID`, hoặc người nhận chưa nhắn cho bot lần nào / đã chặn bot. Firmware bỏ người đó cho tin này, vẫn gửi cho người khác |
+| Người nhà nhắn bot Zalo mà không thấy trả lời | Chưa khai `ZALO_BOT_TOKEN`, hoặc bot đang đặt webhook (dashboard tự gỡ khi chạy), hoặc `ZALO_POLL_TIMEOUT_S = 0` |
 | Nút bấm tự kích liên tục | Thiếu nối về GND, hoặc dây nút quá dài gây nhiễu → tăng `BTN_DEBOUNCE_MS` |
 | Board không nạp được | Giữ nút BOOT rồi nhấn RESET; cáp USB-C phải là loại **truyền dữ liệu** |
 | Radar báo ngã khi chỉ ngồi xuống sàn | Giảm `RADAR_FALL_SENSITIVITY` xuống 2, hoặc tăng `RADAR_FALL_TIME_S` |

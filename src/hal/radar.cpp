@@ -2,6 +2,7 @@
 #include "config.h"
 #include "event_log.h"
 #include "fall_model.h"
+#include "nn_model.h"
 #include "radar_frame.h"
 
 #include <DFRobot_HumanDetection.h>
@@ -123,6 +124,19 @@ void pushFeatureLocked() {
     s.trackY     = g_snap.trackY;
     g_ringHead = (g_ringHead + 1) % FEATURE_RING_SIZE;
     g_ringTotal++;
+}
+
+/// Chạy hai mạng nơ-ron trên cửa sổ vừa đẩy vào vòng đệm và chép kết quả vào
+/// ảnh chụp trạng thái. Phải gọi khi ĐANG giữ Lock (giống pushFeatureLocked).
+void updateNnLocked() {
+    NnModel::Result r;
+    NnModel::update(g_ring, FEATURE_RING_SIZE, g_ringHead, g_ringTotal, r);
+    g_snap.nnReady       = r.ready;
+    g_snap.nnFall        = r.fall;
+    g_snap.nnProb        = r.fallProb;
+    g_snap.nnPosture     = r.posture;
+    g_snap.nnPostureProb = r.postureProb;
+    g_snap.nnFloorProb   = r.floorProb;
 }
 
 // ===========================================================================
@@ -472,6 +486,7 @@ bool fastLoop() {
             pushFeatureLocked();
             FallModel::update(g_ring, FEATURE_RING_SIZE, g_ringHead, g_ringTotal,
                               g_snap.modelReady, g_snap.modelFall, g_snap.modelProb);
+            updateNnLocked();
         }
 
         vTaskDelay(pdMS_TO_TICKS(5));   // nhường CPU, vẫn đủ nhanh cho 115200 baud
@@ -548,6 +563,7 @@ void libraryLoop() {
             pushFeatureLocked();
             FallModel::update(g_ring, FEATURE_RING_SIZE, g_ringHead, g_ringTotal,
                               g_snap.modelReady, g_snap.modelFall, g_snap.modelProb);
+            updateNnLocked();
         }
 
         vTaskDelay(pdMS_TO_TICKS(RADAR_POLL_INTERVAL_MS));
@@ -607,6 +623,7 @@ void simTask(void*) {
 bool begin() {
     if (!g_mutex) g_mutex = xSemaphoreCreateMutex();
     FallModel::begin();
+    NnModel::begin();
     const bool ok = xTaskCreatePinnedToCore(
                         SIMULATE_RADAR ? simTask : radarTask,
                         "radar", 6144, nullptr, 2, &g_task, 0) == pdPASS;

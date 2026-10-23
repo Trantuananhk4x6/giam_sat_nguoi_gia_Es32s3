@@ -1,23 +1,20 @@
 /**
  * GET /api/wifi/list
- * Danh sách mạng Wi-Fi đã lưu trong firmware (không kèm mật khẩu). Proxy qua máy
- * chủ Next.js để tránh CORS khi gọi sang ESP32.
+ * Mạng Wi-Fi đã lưu trong firmware (KHÔNG kèm mật khẩu), kèm mạng nào đang dùng,
+ * sóng nếu thấy trong lần quét gần nhất và kết quả lần thử gần nhất.
  */
 import { NextResponse } from "next/server";
-import { friendlyError, wifiList } from "@/lib/esp32";
+import { errorReply, wifiList } from "@/lib/esp32";
 import { getSettings } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const settings = await getSettings();
+  const { esp32Host: host } = await getSettings();
   try {
-    const saved = await wifiList(settings.esp32Host);
-    return NextResponse.json(saved);
+    return NextResponse.json(await wifiList(host));
   } catch (err) {
-    return NextResponse.json(
-      { error: friendlyError(err, settings.esp32Host) },
-      { status: 502 },
-    );
+    const e = errorReply(err, host);
+    return NextResponse.json({ ok: false, error: e.error }, { status: e.status });
   }
 }

@@ -67,6 +67,12 @@ body {
   padding: 10px 12px 10px 16px;
   margin-bottom: 22px;
   box-shadow: 0 8px 26px rgba(16, 33, 72, 0.22);
+  /* Animation "rise" (fill-mode both) biến .nav thành stacking context riêng nên
+     z-index của .nav-menu chỉ có tác dụng BÊN TRONG nav; các khối phía sau (thẻ có
+     animation, .hero2 isolation, .card:hover transform) lại vẽ đè lên sub-menu.
+     Nâng cả thanh nav lên trên mọi lớp khác trong trang (cao nhất còn lại là 40). */
+  position: relative;
+  z-index: 50;
 }
 /* Khoi chua cac muc dieu huong - desktop la mot hang ngang. */
 .nav-items {
@@ -1257,14 +1263,30 @@ button.mic {
   flex: none;
   width: 48px;
   border-radius: 14px;
-  background: #fff;
-  border-color: var(--line);
+  /* Nen navy gradient, icon trang -> ro rang (truoc day trang tren trang bi tang hinh). */
+  background: var(--navy-grad);
+  border: 1px solid #1b3a80;
+  color: #fff;
   font-size: 18px;
   padding: 0;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 12px rgba(31, 63, 135, 0.3);
 }
+button.mic svg { color: #fff; }
+button.mic:hover:not(:disabled) { filter: brightness(1.12); }
+/* Dang nghe: do + nhip dap quanh nut. */
 button.mic.on {
-  background: var(--bad);
-  color: #fff;
+  background: linear-gradient(135deg, #e85561 0%, #c0303d 100%);
+  border-color: #a3121f;
+  animation: mic-pulse 1.3s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(226, 61, 75, 0.5); }
+  70% { box-shadow: 0 0 0 10px rgba(226, 61, 75, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.mic.on { animation: none; }
 }
 .chat-foot {
   display: flex;
@@ -1554,4 +1576,169 @@ img, svg, video, canvas { max-width: 100%; }
   .kpi { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: 1fr; }
   .hero2-title { font-size: 20px; }
+}
+
+/* =========================================================================
+   HIEU UNG & NAVY GRADIENT TOAN GIAO DIEN
+   - Nen co quang navy diu (radial gradient).
+   - Cac khoi xuat hien muot khi tai trang (fade + truot len), xep tang.
+   - Hover tinh te: the nhoi len, nut co anh sang quet.
+   - Ton trong prefers-reduced-motion.
+   ========================================================================= */
+
+/* --- Nen trang: them quang navy mo o tren cho co chieu sau --- */
+body {
+  background:
+    radial-gradient(1100px 520px at 50% -200px, rgba(42, 75, 160, 0.14) 0%, rgba(42, 75, 160, 0) 70%),
+    radial-gradient(760px 400px at 100% 0, rgba(91, 63, 209, 0.08) 0%, rgba(91, 63, 209, 0) 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* --- Dinh nghia cac animation dung chung --- */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes hero-sheen {
+  0% { transform: translateX(-60%) rotate(8deg); opacity: 0; }
+  25% { opacity: 0.5; }
+  55%, 100% { transform: translateX(160%) rotate(8deg); opacity: 0; }
+}
+
+/* --- Xuat hien khi tai trang, xep tang nhe --- */
+.nav { animation: rise 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both; }
+.page-head,
+.hero,
+.hero2 { animation: rise 0.55s cubic-bezier(0.22, 0.61, 0.36, 1) both; animation-delay: 0.05s; }
+
+/* Luoi the: tung o truot len lan luot. */
+.tiles > *,
+.kpi > .box,
+.grid > .card,
+.grid2 > *,
+.stack > .card,
+.grid-2col > .card {
+  animation: rise 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.tiles > *:nth-child(1), .kpi > .box:nth-child(1), .stack > .card:nth-child(1) { animation-delay: 0.08s; }
+.tiles > *:nth-child(2), .kpi > .box:nth-child(2), .stack > .card:nth-child(2) { animation-delay: 0.14s; }
+.tiles > *:nth-child(3), .kpi > .box:nth-child(3), .stack > .card:nth-child(3) { animation-delay: 0.20s; }
+.tiles > *:nth-child(4), .kpi > .box:nth-child(4), .stack > .card:nth-child(4) { animation-delay: 0.26s; }
+.kpi > .box:nth-child(n+5) { animation-delay: 0.30s; }
+
+/* Dong timeline va tin nhan hien dan. */
+.timeline .tl { animation: fade 0.4s ease both; }
+.timeline .tl:nth-child(1) { animation-delay: 0.05s; }
+.timeline .tl:nth-child(2) { animation-delay: 0.10s; }
+.timeline .tl:nth-child(3) { animation-delay: 0.15s; }
+.timeline .tl:nth-child(4) { animation-delay: 0.20s; }
+.timeline .tl:nth-child(n+5) { animation-delay: 0.25s; }
+
+/* Bong bong chat moi truot vao. */
+.bubble-row { animation: rise 0.35s ease both; }
+
+/* --- Chuyen dong muot cho moi tuong tac --- */
+.card,
+.tile,
+.btn-link,
+button,
+.chip,
+.pill,
+.st-pill,
+.mark,
+.msg-item,
+.suggest-chip,
+.nav a,
+.nav-trigger {
+  transition:
+    transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1),
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    filter 0.15s ease,
+    border-color 0.15s ease;
+}
+
+/* The nhoi nhe khi di chuot. */
+.card:hover,
+.ai-card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(16, 33, 72, 0.14); }
+.tile:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(16, 33, 72, 0.16); }
+.msg-item:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(16, 33, 72, 0.1); }
+
+/* Nut bam: nhoi len + sang; nhan xuong lun nhe. */
+button:not(:disabled):hover { transform: translateY(-1px); }
+button:not(:disabled):active { transform: translateY(1px); }
+.btn-link:hover { transform: translateY(-1px); }
+
+/* Chip goi y + tab nho nhoi phong khi hover. */
+.suggest-chip:hover:not(:disabled) { transform: translateY(-1px); }
+.chip:hover { transform: translateY(-1px); }
+
+/* --- Nut navy gradient co anh sang quet khi hover --- */
+button.b-main,
+button.b-ok,
+button.b-sos,
+button.big {
+  position: relative;
+  overflow: hidden;
+}
+button.b-main::after,
+button.big::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: translateX(-180%) skewX(-18deg);
+  transition: transform 0.6s ease;
+  pointer-events: none;
+}
+button.b-main:hover:not(:disabled)::after,
+button.big:hover:not(:disabled)::after { transform: translateX(260%) skewX(-18deg); }
+
+/* --- Hero: dai sang quet cheo nhe mot lan khi vao trang --- */
+.hero2 { isolation: isolate; }
+.hero2::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  left: 0;
+  width: 55%;
+  height: 180%;
+  z-index: 0;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  animation: hero-sheen 5.5s ease-in-out 0.6s;
+  pointer-events: none;
+}
+
+/* --- Nav: muc dang xem co gach vang truot vao + hover nang nhe --- */
+.nav a.on { position: relative; }
+.nav a:hover { transform: translateY(-1px); }
+
+/* --- Focus ro rang, diu mat (UX ban phim) --- */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.nav a:focus-visible,
+.nav-trigger:focus-visible {
+  outline: 2px solid var(--gold-2);
+  outline-offset: 2px;
+}
+
+/* --- Tat moi animation/chuyen dong khi nguoi dung yeu cau --- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .hero2::before { display: none; }
 }

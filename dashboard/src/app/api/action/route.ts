@@ -18,6 +18,7 @@ const ALLOWED = new Set([
   "present_off",
   "testvoice",
   "testtg",
+  "testzalo",
   "clearlog",
 ]);
 

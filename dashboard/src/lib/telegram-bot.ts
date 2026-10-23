@@ -55,7 +55,8 @@ function rt(): Runtime {
 
 function config() {
   const token = (process.env.TELEGRAM_BOT_TOKEN ?? "").trim();
-  const allowed = [process.env.TELEGRAM_CHAT_ID ?? "", ...(process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? "").split(",")]
+  // TELEGRAM_CHAT_ID cũng có thể là danh sách cách nhau dấu phẩy, giống secrets.h của firmware
+  const allowed = [...(process.env.TELEGRAM_CHAT_ID ?? "").split(","), ...(process.env.TELEGRAM_ALLOWED_CHAT_IDS ?? "").split(",")]
     .map((s) => s.trim())
     .filter(Boolean);
   return { token, allowed: [...new Set(allowed)], disabled: process.env.TELEGRAM_BOT_DISABLED === "1" };

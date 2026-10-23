@@ -155,7 +155,7 @@ export default function ThucNghiemPage() {
 
   async function removeTrial(id: string) {
     if (!confirm("Xóa lần thử này khỏi số liệu?")) return;
-    await fetch(`/api/trials/${id}`, { method: "DELETE" });
+    await fetch(`/api/trials/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" } });
     await loadTrials(sessionId);
   }
 

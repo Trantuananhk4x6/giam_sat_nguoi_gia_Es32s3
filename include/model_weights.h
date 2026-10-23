@@ -25,6 +25,10 @@
 /// Thông tin để hiện lên trang web và ghi vào báo cáo
 #define FALL_MODEL_INFO "chua huan luyen"
 
+/// Số cửa sổ LIÊN TIẾP phải vượt ngưỡng mới kết luận là té ngã (2 cửa sổ ≈ 0,5 giây).
+/// Notebook mô phỏng firmware bằng đúng con số này nên nó đi cùng bộ trọng số.
+#define FALL_MODEL_CONFIRM_WINDOWS 2
+
 /// Ngưỡng xác suất để kết luận là té ngã
 constexpr float FALL_MODEL_THRESHOLD = 0.5f;
 

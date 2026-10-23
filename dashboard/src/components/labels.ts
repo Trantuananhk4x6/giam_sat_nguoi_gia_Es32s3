@@ -17,7 +17,7 @@ export const SPEAK_LABEL: Record<SpeakStatus, { text: string; tone: string }> = 
   loi: { text: "Chưa phát · lỗi", tone: "bad" },
 };
 
-export const CHANNEL_LABEL = { telegram: "Telegram", web: "Trang web" } as const;
+export const CHANNEL_LABEL = { telegram: "Telegram", zalo: "Zalo", web: "Trang web", "thiet-bi": "Thiết bị trong phòng" } as const;
 
 const VN = 7 * 3600 * 1000;
 export function hm(ms: number): string {

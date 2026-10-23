@@ -1,19 +1,34 @@
 /**
- * GET  /api/settings    đọc cấu hình (địa chỉ ESP32, chu kỳ hỏi, xưng hô, giọng đọc, Telegram)
+ * GET  /api/settings    đọc cấu hình (địa chỉ ESP32, chu kỳ hỏi, xưng hô, giọng đọc, Telegram, Zalo)
  * POST /api/settings    lưu cấu hình; nếu đổi địa chỉ ESP32 thì thử kết nối ngay để báo kết quả
  */
 import { NextResponse } from "next/server";
 import { fetchStatus, friendlyError } from "@/lib/esp32";
-import { pollNow } from "@/lib/poller";
+import { pollNow, pollerSnapshot } from "@/lib/poller";
 import { getSettings, saveSettings } from "@/lib/store";
 import { telegramBotInfo } from "@/lib/telegram-bot";
 import { VOICES } from "@/lib/tts";
 import type { Settings } from "@/lib/types";
+import { ensureZaloBot, zaloBotInfo } from "@/lib/zalo-bot";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ ...(await getSettings()), bot: telegramBotInfo(), voices: VOICES });
+  ensureZaloBot();
+  // Firmware có gửi cảnh báo qua Zalo không (để trang Cài đặt nhắc khai secrets.h)
+  const snap = pollerSnapshot();
+  const fw = snap.status?.zalo;
+  return NextResponse.json({
+    ...(await getSettings()),
+    bot: telegramBotInfo(),
+    zalo: {
+      ...zaloBotInfo(),
+      firmwareOnline: snap.online,
+      firmwareChats: fw?.chats ?? null,
+      firmwarePoller: fw?.poller ?? null,
+    },
+    voices: VOICES,
+  });
 }
 
 export async function POST(req: Request) {
@@ -29,6 +44,7 @@ export async function POST(req: Request) {
   if (typeof body.elderCall === "string") patch.elderCall = body.elderCall.trim().slice(0, 20);
   if (typeof body.ttsVoice === "string" && body.ttsVoice in VOICES) patch.ttsVoice = body.ttsVoice;
   if (typeof body.telegramEnabled === "boolean") patch.telegramEnabled = body.telegramEnabled;
+  if (typeof body.zaloEnabled === "boolean") patch.zaloEnabled = body.zaloEnabled;
 
   const settings = await saveSettings(patch);
   if (patch.esp32Host === undefined && patch.pollMs === undefined) {

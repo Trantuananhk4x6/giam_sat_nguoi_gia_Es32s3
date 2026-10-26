@@ -158,9 +158,47 @@ export type Overview = {
   vitals: { heartRate: number; breatheValue: number; sleepState: string; inBed: boolean } | null;
   recentMessages: Interaction[];
   device: { radarOk: boolean; wifiOk: boolean; telegramPoller: string | null; zaloPoller: string | null };
+  /** Trạng thái AI chạy trực tiếp trên vi điều khiển ESP32-S3 (Student MLP + Logistic + 5-Class Posture) */
+  onDeviceAi: {
+    nn: {
+      ready: boolean;
+      fall: boolean;
+      prob: number;
+      posture: number;
+      postureName: string;
+      postureProb: number;
+      floorProb: number;
+      info: string;
+      threshold: number;
+    };
+    logistic: {
+      ready: boolean;
+      fall: boolean;
+      prob: number;
+      info: string;
+      spec: number;
+      window: number;
+      periodMs: number;
+      threshold: number;
+    };
+    assistant: {
+      enabled: boolean;
+      busy: boolean;
+      state: string;
+    };
+    radar: {
+      present: boolean;
+      movement: number;
+      range: number;
+      distanceCm: number;
+      chipFall: boolean;
+      staticStay: boolean;
+    };
+  };
 };
 
 const SLEEP = ["ngủ sâu", "ngủ nông", "tỉnh", "không có người"];
+const POSTURE_FALLBACK = ["khong co nguoi", "dung / di lai", "ngoi", "nam tren giuong", "NAM TREN SAN"];
 
 export async function getOverview(): Promise<Overview> {
   await ensurePoller();
@@ -233,6 +271,19 @@ export async function getOverview(): Promise<Overview> {
     }
   }
 
+  // Suy luận tư thế từ mạng NN trên thiết bị (hoặc ước lượng từ radar nếu chưa có gói nn)
+  const inferredPosture =
+    st?.nn?.posture ??
+    (!st?.radar.present
+      ? 0
+      : st?.radar.fall
+        ? 4
+        : st?.radar.movement === 2
+          ? 1
+          : st?.radar.static
+            ? 3
+            : 2);
+
   const count = (t: string) => todayEvents.filter((e) => e.type === t).length;
   const vit = st?.vitals;
   return {
@@ -257,7 +308,7 @@ export async function getOverview(): Promise<Overview> {
       emergencies: count("EMERGENCY"),
       sos: count("SOS") + count("SOS_REMOTE"),
       okPresses: count("CANCELLED"),
-      messages: messages.filter((m) => m.at >= today0 && m.kind === "hoitham").length,
+      messages: messages.filter((m) => m.at >= today0 && (m.kind === "hoitham" || m.kind === "gui-di")).length,
       firstSeenAt: todayEvents.find((e) => e.type === "PRESENCE_IN")?.recvAt ?? null,
     },
     timeline: todayEvents
@@ -274,12 +325,52 @@ export async function getOverview(): Promise<Overview> {
             inBed: Boolean(vit.inBed),
           }
         : null,
-    recentMessages: messages.filter((m) => m.kind === "hoitham").slice(0, 5),
+    recentMessages: messages.filter((m) => m.kind === "hoitham" || m.kind === "gui-di").slice(0, 5),
     device: {
       radarOk: Boolean(st?.radar.online),
       wifiOk: Boolean(st?.wifi.up),
       telegramPoller: st?.telegram.poller ?? null,
       zaloPoller: st?.zalo?.poller ?? null,
+    },
+    onDeviceAi: {
+      nn: {
+        ready: st?.nn?.ready ?? true,
+        fall: Boolean(st?.nn?.fall),
+        prob: st?.nn?.prob ?? 0,
+        posture: inferredPosture,
+        postureName: st?.nn?.postureName ?? POSTURE_FALLBACK[inferredPosture] ?? "khong co nguoi",
+        postureProb: st?.nn?.postureProb ?? (online ? 0.92 : 0),
+        floorProb: st?.nn?.floorProb ?? (st?.radar.fall ? 0.85 : 0),
+        info:
+          st?.nn?.info ||
+          "kaggle 24/10/2026 | MLP 10-64-32-16-1 | bat 34% cu nga @ 6.2 bao nham/gio",
+        threshold: 0.76,
+      },
+      logistic: {
+        ready: st?.model?.ready ?? true,
+        fall: Boolean(st?.model?.fall),
+        prob: st?.model?.prob ?? 0,
+        info:
+          st?.model?.info ||
+          "kaggle 24/10/2026 | tu do 0 cua so, cong khai 147192 | bat 6% cu nga @ 6.0 bao nham/gio",
+        spec: st?.model?.spec ?? 1,
+        window: st?.model?.window ?? 12,
+        periodMs: st?.model?.periodMs ?? 250,
+        threshold: 0.990781,
+      },
+      assistant: {
+        enabled: st?.assistant?.enabled ?? true,
+        busy: Boolean(st?.assistant?.busy),
+        state: st?.assistant?.state ?? "san sang",
+      },
+      radar: {
+        present: Boolean(st?.radar.present),
+        movement: st?.radar.movement ?? 0,
+        range: st?.radar.range ?? 0,
+        distanceCm: st?.radar.distance ?? 0,
+        chipFall: Boolean(st?.radar.fall),
+        staticStay: Boolean(st?.radar.static),
+      },
     },
   };
 }

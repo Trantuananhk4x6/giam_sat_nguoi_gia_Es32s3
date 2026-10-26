@@ -2,22 +2,35 @@
 
 /* Gửi lời nhắn để loa ESP32 đọc cho người cao tuổi nghe (giống lệnh /hoitham
    trên Telegram / Zalo), kèm nhật ký mọi lượt người nhà hỏi thăm qua Telegram,
-   Zalo và web. */
+   Zalo, web và lời nhắn giọng nói từ người cao tuổi gửi đi. */
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CHANNEL_LABEL, SPEAK_LABEL, capFirst, dayVN, hm, withoutCommand } from "@/components/labels";
 import { Ic } from "@/components/Icon";
-import type { Interaction, SpeakStatus, TelegramBotInfo, ZaloBotInfo } from "@/lib/types";
+import type { Interaction, RelayStatus, SpeakStatus, TelegramBotInfo, ZaloBotInfo } from "@/lib/types";
 
 type ListRes = { items: Interaction[]; bot: TelegramBotInfo; zalo?: ZaloBotInfo };
 type SendRes = { reply?: string; error?: string; spoken?: { text: string; status: SpeakStatus; seconds: number | null } | null };
-type Filter = "all" | "hoitham" | "hoi" | "tu-choi";
+type Filter = "all" | "hoitham" | "gui-di" | "hoi" | "tu-choi";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "Tất cả" },
   { id: "hoitham", label: "Lời nhắn qua loa" },
+  { id: "gui-di", label: "Ông/bà nhắn người nhà" },
   { id: "hoi", label: "Hỏi tình hình" },
   { id: "tu-choi", label: "Bị từ chối" },
 ];
+
+const RELAY_BADGE: Record<RelayStatus, { text: string; tone: string }> = {
+  "da-gui": { text: "Đã gửi tới người nhà", tone: "ok" },
+  "gui-mot-phan": { text: "Đã gửi một phần", tone: "warn" },
+  loi: { text: "Chưa gửi được · lỗi kênh", tone: "bad" },
+  "khong-co-ten": { text: "Chưa có tên trong danh bạ", tone: "warn" },
+  "trung-ten": { text: "Trùng tên trong danh bạ", tone: "warn" },
+  "thieu-loi-nhan": { text: "Chưa nói nội dung", tone: "warn" },
+  "chua-co-kenh": { text: "Chưa khai Telegram/Zalo/Email", tone: "warn" },
+  "qua-nhieu": { text: "Tạm chặn gửi dồn dập", tone: "warn" },
+};
 
 const BOT_STATE: Record<string, { text: string; tone: string }> = {
   "dang-doc": { text: "Đang hoạt động", tone: "ok" },
@@ -91,7 +104,9 @@ export default function LoiNhanPage() {
     [call],
   );
 
-  const items = (data?.items ?? []).filter((m) => filter === "all" || m.kind === filter || (filter === "hoi" && m.kind === "lenh"));
+  const items = (data?.items ?? []).filter(
+    (m) => filter === "all" || m.kind === filter || (filter === "hoi" && m.kind === "lenh"),
+  );
   const groups: { day: string; list: Interaction[] }[] = [];
   for (const m of items) {
     const d = dayVN(m.at);
@@ -109,17 +124,18 @@ export default function LoiNhanPage() {
     <>
       <div className="page-head">
         <div>
-          <h1>Gửi lời nhắn qua loa</h1>
+          <h1>Gửi lời nhắn qua loa &amp; Liên lạc 2 chiều</h1>
           <p className="sub">
-            Loa trong phòng sẽ phát tiếng “ting tong” rồi đọc lời nhắn cho {call} nghe. Trợ lý AI chỉnh câu
-            cho dễ nghe nhưng giữ nguyên nội dung, giờ giấc.
+            Loa trong phòng sẽ phát tiếng “ting tong” rồi đọc lời nhắn cho {call} nghe. Ngược lại, {call} cũng có thể
+            giữ nút trên thiết bị nói <b>“Gửi cho &lt;tên&gt; là …”</b> để nhắn về Telegram / Zalo / Email của người nhà (
+            <Link href="/cai-dat#danh-ba">Quản lý danh bạ người nhà →</Link>).
           </p>
         </div>
       </div>
 
       <div className="grid2">
         <div className="card">
-          <h2>Soạn lời nhắn</h2>
+          <h2>Soạn lời nhắn xuống loa</h2>
           <label className="field">
             <span>Tên người gửi (loa sẽ đọc tên này)</span>
             <input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Ví dụ: Tuấn" maxLength={40} />
@@ -159,7 +175,7 @@ export default function LoiNhanPage() {
                 style={{ marginTop: 8 }}
                 onClick={() => void new Audio(`/api/tts?text=${encodeURIComponent(preview)}`).play().catch(() => undefined)}
               >
-<Ic name="play" size={14} /> Nghe thử trên máy tính
+                <Ic name="play" size={14} /> Nghe thử trên máy tính
               </button>
             </div>
           )}
@@ -187,7 +203,6 @@ export default function LoiNhanPage() {
                 <>
                   {" "}hoặc{" "}
                   {zalo.botName ? (
-                    // Tên bot Zalo bắt buộc mở đầu bằng "Bot" nên khỏi thêm chữ "bot" phía trước
                     <>{/^bot\b/i.test(zalo.botName) ? "" : "bot "}<b>{zalo.botName}</b></>
                   ) : (
                     "bot"
@@ -205,6 +220,12 @@ export default function LoiNhanPage() {
           <div className="sub" style={{ marginTop: 10 }}>
             Hỏi tự nhiên “Hôm nay {call} thế nào?” thì bot trả lời bằng dữ liệu radar. Trong nhóm gia đình dùng{" "}
             <code className="cmd">/hoi &lt;câu hỏi&gt;</code>.
+          </div>
+          <div className="sub" style={{ marginTop: 8 }}>
+            <b>Chiều ngược lại ({capFirst(call)} nhắn cho con cháu):</b> Thêm tên và mã chat của từng người vào{" "}
+            <Link href="/cai-dat#danh-ba">Danh bạ người nhà (trang Cài đặt)</Link>. Khi {call} nói{" "}
+            <i>“Gửi cho Tuấn là tối nay gọi cho {call} nhé”</i>, tin nhắn sẽ được chuyển thẳng tới Telegram, Zalo và
+            Email của Tuấn.
           </div>
           {bot?.detail && bot.state !== "dang-doc" && (
             <div className="warnbox" style={{ marginTop: 12, marginBottom: 0 }}>{zalo ? `Telegram: ${bot.detail}` : bot.detail}</div>
@@ -229,7 +250,7 @@ export default function LoiNhanPage() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="card-head">
-          <h2>Nhật ký hỏi thăm</h2>
+          <h2>Nhật ký hỏi thăm &amp; liên lạc</h2>
           <div className="tabs" role="tablist" aria-label="Lọc nhật ký">
             {FILTERS.map((f) => (
               <button key={f.id} role="tab" aria-selected={filter === f.id} className={`tab${filter === f.id ? " on" : ""}`} onClick={() => setFilter(f.id)}>
@@ -249,10 +270,34 @@ export default function LoiNhanPage() {
                   <b>{m.from}</b> · {hm(m.at)}
                   {m.speak && <span className={`st-pill ${SPEAK_LABEL[m.speak].tone}`}>{SPEAK_LABEL[m.speak].text}</span>}
                   {m.kind === "hoitham" && <span className="st-pill navy"><Ic name="speaker" size={13} /> Lời nhắn qua loa</span>}
+                  {m.kind === "gui-di" && m.relay && (
+                    <>
+                      <span className="st-pill navy">
+                        <Ic name="msg-sent" size={13} /> Gửi tới: {m.relay.to || "—"}
+                      </span>
+                      <span className={`st-pill ${RELAY_BADGE[m.relay.status]?.tone ?? ""}`}>
+                        {RELAY_BADGE[m.relay.status]?.text ?? m.relay.status}
+                      </span>
+                    </>
+                  )}
                   {m.kind === "tu-choi" && <span className="st-pill bad">Chat chưa được phép · {m.chatId}</span>}
                   {m.ai && <span className="st-pill">AI</span>}
                 </div>
                 <div className="msg-said">{m.kind === "hoitham" ? withoutCommand(m.text) : m.text}</div>
+                {m.kind === "gui-di" && m.relay?.sent && (
+                  <div className="msg-said spoken">
+                    <Ic name="msg-sent" size={14} /> Đã chuyển nguyên văn: <b>{m.relay.sent}</b>
+                  </div>
+                )}
+                {m.kind === "gui-di" && m.relay && m.relay.delivery.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {m.relay.delivery.map((d, idx) => (
+                      <span key={idx} className={`st-pill ${d.ok ? "ok" : "bad"}`}>
+                        {d.channel.toUpperCase()}: {d.ok ? "✓ Đã nhận" : `✗ ${d.error ?? "Lỗi"}`}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {m.spokenText && <div className="msg-said spoken"><Ic name="speaker" size={14} /> {m.spokenText}</div>}
                 {!m.spokenText && m.kind !== "tu-choi" && <div className="reply-text"><Ic name="reply" size={14} /> {m.reply}</div>}
               </div>

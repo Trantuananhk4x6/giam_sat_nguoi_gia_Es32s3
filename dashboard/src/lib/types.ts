@@ -24,7 +24,41 @@ export type Esp32Status = {
     falls: number;
     errors: number;
     health: string;
+    fastMode?: boolean;
+    frames?: number;
+    badFrames?: number;
+    fallAgeMs?: number;
+    trackX?: number;
+    trackY?: number;
     ageMs: number;
+  };
+  /** Kết quả model hồi quy logistic tự huấn luyện chạy trên ESP32 (src/core/fall_model.h) */
+  model?: {
+    ready: boolean;
+    fall: boolean;
+    prob: number;
+    info: string;
+    spec: number;
+    window: number;
+    periodMs: number;
+  };
+  /** Kết quả mạng nơ-ron MLP chưng cất (té ngã + tư thế 5 lớp) chạy trên ESP32 (src/core/nn_model.h) */
+  nn?: {
+    ready: boolean;
+    fall: boolean;
+    prob: number;
+    /** 0: Không người | 1: Đứng/Đi | 2: Ngồi | 3: Nằm giường | 4: NẰM SÀN */
+    posture: number;
+    postureName: string;
+    postureProb: number;
+    floorProb: number;
+    info: string;
+  };
+  /** Trợ lý hội thoại giọng nói trên thiết bị (mic INMP441 -> STT/LLM/TTS -> loa) */
+  assistant?: {
+    enabled: boolean;
+    busy: boolean;
+    state: string;
   };
   /** Cấu hình đang nạp trong firmware (firmware tự báo lên) */
   config?: {

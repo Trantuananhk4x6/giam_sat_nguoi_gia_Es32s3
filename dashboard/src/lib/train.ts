@@ -25,6 +25,11 @@ import {
 } from "./features";
 import type { Trial } from "./types";
 
+/** Số cửa sổ liên tiếp phải vượt ngưỡng mới kết luận là té ngã (khớp với firmware C++) */
+export const CONFIRM_WINDOWS = 2;
+/** Trần số lần báo nhầm mỗi giờ mặc định khi chọn ngưỡng */
+export const DEFAULT_FA_BUDGET_PER_HOUR = 6.0;
+
 export type LabeledWindow = {
   x: number[];
   y: 0 | 1;
@@ -60,6 +65,18 @@ export type Scores = {
   f1: number | null;
   accuracy: number | null;
   count: number;
+};
+
+export type EventEval = {
+  threshold: number;
+  fallTrials: number;
+  caughtTrials: number;
+  eventRecall: number;
+  falseAlarmEvents: number;
+  negWindows: number;
+  negHours: number;
+  faPerHour: number;
+  f1: number;
 };
 
 /** Nới thêm về hai phía của khoảng "có ngã" (ms) */
@@ -296,21 +313,126 @@ export function evaluate(model: LogisticModel, data: LabeledWindow[]): Scores {
 }
 
 /**
- * Chọn ngưỡng cho F1 cao nhất trên tập huấn luyện.
- * Ngưỡng 0,5 không phải lúc nào cũng tốt nhất khi dữ liệu lệch lớp.
+ * Đánh giá theo SỰ KIỆN (Event-level) với đúng luật xác nhận của firmware C++:
+ * phải có `CONFIRM_WINDOWS = 2` cửa sổ liên tiếp vượt ngưỡng mới kích hoạt báo động.
  */
-export function tuneThreshold(model: LogisticModel, data: LabeledWindow[]): number {
-  let best = 0.5;
-  let bestF1 = -1;
-  for (let th = 0.1; th <= 0.9001; th += 0.02) {
-    const s = evaluate({ ...model, threshold: th }, data);
-    const f1 = s.f1 ?? -1;
-    if (f1 > bestF1) {
-      bestF1 = f1;
-      best = Math.round(th * 100) / 100;
+export function evaluateEvents(
+  model: LogisticModel,
+  data: LabeledWindow[],
+  threshold = model.threshold,
+): EventEval {
+  const byTrial = new Map<string, LabeledWindow[]>();
+  for (const w of data) {
+    let arr = byTrial.get(w.trialId);
+    if (!arr) {
+      arr = [];
+      byTrial.set(w.trialId, arr);
+    }
+    arr.push(w);
+  }
+
+  let fallTrials = 0;
+  let caughtTrials = 0;
+  let falseAlarmEvents = 0;
+  let negWindows = 0;
+
+  for (const windows of byTrial.values()) {
+    const sorted = windows.slice().sort((a, b) => a.endRecvAt - b.endRecvAt);
+    const isFallTrial = sorted.some((w) => w.y === 1);
+    const needed = Math.min(CONFIRM_WINDOWS, sorted.length);
+    let consecutive = 0;
+    let trialFired = false;
+
+    for (const w of sorted) {
+      if (w.y === 0) negWindows++;
+      const above = predict(model, w.x) >= threshold;
+      if (above) {
+        consecutive++;
+        if (consecutive >= needed) {
+          trialFired = true;
+          if (!isFallTrial && consecutive === needed) {
+            falseAlarmEvents++;
+          }
+        }
+      } else {
+        consecutive = 0;
+      }
+    }
+
+    if (isFallTrial) {
+      fallTrials++;
+      if (trialFired) caughtTrials++;
     }
   }
-  return best;
+
+  // Mỗi cửa sổ trượt bước 1 mẫu = 250 ms = 0.25 giây
+  const negHours = (negWindows * 0.25) / 3600;
+  const faPerHour = negHours > 0 ? falseAlarmEvents / negHours : 0;
+  const eventRecall = fallTrials > 0 ? caughtTrials / fallTrials : 0;
+  const winScores = evaluate({ ...model, threshold }, data);
+
+  return {
+    threshold,
+    fallTrials,
+    caughtTrials,
+    eventRecall,
+    falseAlarmEvents,
+    negWindows,
+    negHours,
+    faPerHour,
+    f1: winScores.f1 ?? 0,
+  };
+}
+
+/**
+ * Chọn ngưỡng tối ưu trên tập huấn luyện:
+ * Ưu tiên kiểm soát báo động giả theo sự kiện (2 cửa sổ liên tiếp vượt ngưỡng,
+ * khống chế số lần báo nhầm/giờ <= maxFaPerHour) bên cạnh F1 theo cửa sổ.
+ */
+export function tuneThreshold(
+  model: LogisticModel,
+  data: LabeledWindow[],
+  maxFaPerHour = DEFAULT_FA_BUDGET_PER_HOUR,
+): number {
+  if (data.length === 0) return 0.5;
+
+  const candidates: number[] = [];
+  for (let th = 0.1; th <= 0.9001; th += 0.02) {
+    candidates.push(Math.round(th * 100) / 100);
+  }
+  for (const highTh of [0.92, 0.94, 0.96, 0.98, 0.99]) {
+    candidates.push(highTh);
+  }
+
+  let bestSafeTh: number | null = null;
+  let bestSafeScore = -1;
+
+  let bestFallbackTh = 0.5;
+  let bestFallbackScore = -Infinity;
+
+  for (const th of candidates) {
+    const ev = evaluateEvents(model, data, th);
+    const withinBudget = ev.faPerHour <= maxFaPerHour || ev.falseAlarmEvents === 0;
+
+    // Điểm kết hợp giữa tỷ lệ bắt ngã theo sự kiện (2 cửa sổ liên tiếp) và F1 cửa sổ
+    const combinedScore = ev.fallTrials > 0 ? 0.6 * ev.eventRecall + 0.4 * ev.f1 : ev.f1;
+
+    if (withinBudget && (ev.eventRecall > 0 || ev.f1 > 0)) {
+      if (combinedScore > bestSafeScore) {
+        bestSafeScore = combinedScore;
+        bestSafeTh = th;
+      }
+    }
+
+    // Điểm dự phòng nếu dữ liệu quá ngắn khiến 1 lần FP cũng vượt trần FA/giờ
+    const fallbackScore = ev.f1 - 0.04 * ev.falseAlarmEvents;
+    if (fallbackScore > bestFallbackScore) {
+      bestFallbackScore = fallbackScore;
+      bestFallbackTh = th;
+    }
+  }
+
+  return bestSafeTh ?? bestFallbackTh;
 }
 
 /** Sinh nội dung file include/model_weights.h để nạp vào firmware */
@@ -355,11 +477,13 @@ export function generateHeader(
 #define FALL_MODEL_TRAINED 1
 #define FALL_MODEL_SPEC_VERSION ${model.specVersion}
 #define FALL_MODEL_INFO "${info}"
+// So cua so LIEN TIEP phai vuot nguong moi ket luan la nga.
+#define FALL_MODEL_CONFIRM_WINDOWS ${CONFIRM_WINDOWS}
 
 constexpr float FALL_MODEL_THRESHOLD = ${f(model.threshold)};
 constexpr float FALL_MODEL_BIAS      = ${f(model.bias)};
 
-// Thu tu dac trung xem src/fall_model.h
+// Thu tu dac trung xem src/core/fall_model.h
 constexpr float FALL_MODEL_WEIGHTS[${FEATURE_COUNT}] = {
 ${model.weights.map((w, i) => `    ${f(w)},  // f${i}`).join("\n")}
 };

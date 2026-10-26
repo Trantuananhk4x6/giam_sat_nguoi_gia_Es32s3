@@ -5,6 +5,7 @@
 #include <math.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 
 // --- Giải mã MP3 cho câu trả lời TTS của trợ lý hội thoại (xem playMp3Url) ---
@@ -24,7 +25,13 @@ constexpr uint32_t   DEFAULT_RATE = 16000;
 constexpr size_t     FRAMES       = 256;   // số mẫu xử lý mỗi lượt
 
 TaskHandle_t  g_task     = nullptr;
-QueueHandle_t g_queue    = nullptr;        // hàng đợi yêu cầu phát
+QueueHandle_t     g_queue    = nullptr;        // hàng đợi yêu cầu phát
+SemaphoreHandle_t g_i2sMutex = nullptr;        // khóa bảo vệ I2S_PORT giữa audioTask và assistantTask
+
+struct I2sLock {
+    I2sLock()  { if (g_i2sMutex) xSemaphoreTake(g_i2sMutex, portMAX_DELAY); }
+    ~I2sLock() { if (g_i2sMutex) xSemaphoreGive(g_i2sMutex); }
+};
 volatile bool g_playing  = false;
 volatile bool g_stopReq  = false;
 bool          g_driverOk = false;
@@ -133,6 +140,9 @@ bool parseWavHeader(File& f, WavInfo& info) {
 void playBeepsBlocking(uint8_t count, uint16_t freqHz, uint16_t onMs);
 
 void playFile(const char* path) {
+    I2sLock lk;
+    g_playing = true;
+    g_stopReq = false;
     File f = LittleFS.open(path, "r");
     if (!f) {
         Serial.printf("[AUDIO] Khong mo duoc %s -> phat bip thay the\n", path);
@@ -271,11 +281,12 @@ void audioTask(void*) {
     PlayRequest req;
     for (;;) {
         if (xQueueReceive(g_queue, &req, portMAX_DELAY) == pdTRUE) {
-            g_playing = true;
-            g_stopReq = false;
-            if (req.beeps > 0) playBeepsBlocking(req.beeps, req.freqHz, req.onMs);
+            // Chờ khóa g_i2sMutex trong playFile/beeps trước khi xóa g_stopReq
+
+            if (req.beeps > 0) { I2sLock lk; g_playing = true; g_stopReq = false; playBeepsBlocking(req.beeps, req.freqHz, req.onMs); }
             else               playFile(req.path);
             g_stopReq = false;
+
             g_playing = false;
         }
     }
@@ -284,6 +295,8 @@ void audioTask(void*) {
 }  // namespace
 
 bool begin() {
+    if (!g_i2sMutex) g_i2sMutex = xSemaphoreCreateMutex();
+    if (!g_i2sMutex) return false;
     g_driverOk = installDriver();
     if (!g_driverOk) return false;
     g_queue = xQueueCreate(3, sizeof(PlayRequest));
@@ -329,6 +342,7 @@ bool isPlaying() { return g_playing; }
 
 bool playMp3Url(const char* url) {
     if (!g_driverOk || url == nullptr || url[0] == '\0') return false;
+    I2sLock lk;
     // Loa chỉ có một đường I2S; nếu đang bận phát WAV/bíp thì không chen vào.
     if (g_playing) {
         Serial.println("[AUDIO] Dang ban, bo qua yeu cau phat MP3");

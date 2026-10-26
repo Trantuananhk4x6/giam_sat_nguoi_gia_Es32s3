@@ -2,7 +2,8 @@
  * POST /api/assistant  (HỢP ĐỒNG API CỐ ĐỊNH cho FIRMWARE ESP32)
  *
  * Luồng: ESP32 ghi âm từ mic -> gửi file WAV lên đây -> server chuyển giọng nói
- * thành văn bản (Groq STT Whisper) -> đưa văn bản vào trợ lý trò chuyện -> trả
+ * thành văn bản (Groq STT Whisper) -> kiểm tra lệnh nhắn người nhà (relayFromElder)
+ * -> nếu không phải lệnh nhắn thì đưa văn bản vào trợ lý trò chuyện -> trả
  * câu trả lời dạng TEXT cho ESP32.
  *
  * ESP32 sau đó gọi GET /api/tts?text=<reply> để lấy audio phát ra loa.
@@ -11,14 +12,16 @@
  * Request:  multipart/form-data
  *   - field "audio": file WAV PCM 16-bit mono 16kHz (bắt buộc)
  * Response: application/json
- *   200 { "heard": string, "reply": string }
+ *   200 { "heard": string, "reply": string, "relay"?: RelayInfo }
  *       heard = văn bản STT nghe được (có thể rỗng nếu không nghe rõ)
  *       reply = câu trả lời của trợ lý (luôn khác rỗng)
+ *       relay = thông tin gửi lời nhắn cho người nhà (nếu là câu lệnh gửi tin)
  *   400  { "error": string }  (thiếu GROQ_API_KEY / thiếu field "audio" / file quá lớn)
  *   502  { "error": string }  (Groq STT hoặc chat lỗi)
  */
 import { NextResponse } from "next/server";
 import { askAssistant } from "@/lib/assistant";
+import { relayFromElder } from "@/lib/relay";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -115,14 +118,23 @@ export async function POST(req: Request) {
     // Bước 1: STT — chuyển giọng nói thành văn bản.
     const heard = await transcribe(audio);
 
-    // Bước 2 + 3: nếu không nghe rõ thì hỏi lại; ngược lại đưa vào trợ lý.
-    let reply: string;
+    // Bước 2: nếu không nghe rõ thì hỏi lại.
     if (!heard) {
-      reply = REPLY_WHEN_SILENT;
-    } else {
-      reply = await askAssistant([{ role: "user", content: heard }]);
+      return NextResponse.json({ heard, reply: REPLY_WHEN_SILENT });
     }
 
+    // Bước 3: Kiểm tra xem ông/bà có đang nhờ nhắn tin cho người nhà không ("gửi cho Tuấn là...").
+    const relayOut = await relayFromElder(heard, "thiet-bi");
+    if (relayOut !== null) {
+      return NextResponse.json({
+        heard,
+        reply: relayOut.reply,
+        relay: relayOut.relay,
+      });
+    }
+
+    // Bước 4: Không phải lệnh gửi tin -> trò chuyện với trợ lý AI như bình thường.
+    const reply = await askAssistant([{ role: "user", content: heard }]);
     return NextResponse.json({ heard, reply });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

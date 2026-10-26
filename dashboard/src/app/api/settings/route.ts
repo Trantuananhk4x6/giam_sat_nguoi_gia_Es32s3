@@ -1,9 +1,10 @@
 /**
- * GET  /api/settings    đọc cấu hình (địa chỉ ESP32, chu kỳ hỏi, xưng hô, giọng đọc, Telegram, Zalo)
+ * GET  /api/settings    đọc cấu hình (địa chỉ ESP32, chu kỳ hỏi, xưng hô, giọng đọc, Telegram, Zalo, relayLabel)
  * POST /api/settings    lưu cấu hình; nếu đổi địa chỉ ESP32 thì thử kết nối ngay để báo kết quả
  */
 import { NextResponse } from "next/server";
 import { fetchStatus, friendlyError } from "@/lib/esp32";
+import { notifyChannels } from "@/lib/notify";
 import { pollNow, pollerSnapshot } from "@/lib/poller";
 import { getSettings, saveSettings } from "@/lib/store";
 import { telegramBotInfo } from "@/lib/telegram-bot";
@@ -27,6 +28,7 @@ export async function GET() {
       firmwareChats: fw?.chats ?? null,
       firmwarePoller: fw?.poller ?? null,
     },
+    channels: notifyChannels(),
     voices: VOICES,
   });
 }
@@ -45,6 +47,7 @@ export async function POST(req: Request) {
   if (typeof body.ttsVoice === "string" && body.ttsVoice in VOICES) patch.ttsVoice = body.ttsVoice;
   if (typeof body.telegramEnabled === "boolean") patch.telegramEnabled = body.telegramEnabled;
   if (typeof body.zaloEnabled === "boolean") patch.zaloEnabled = body.zaloEnabled;
+  if (typeof body.relayLabel === "string") patch.relayLabel = body.relayLabel.trim().slice(0, 40) || "Người thân";
 
   const settings = await saveSettings(patch);
   if (patch.esp32Host === undefined && patch.pollMs === undefined) {

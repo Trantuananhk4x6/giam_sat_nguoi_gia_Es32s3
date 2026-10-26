@@ -1,6 +1,6 @@
 .pio/
 .vscode/
-firmware/include/secrets.h
+include/secrets.h
 ~$*.docx
 *.bin
 # Code graph sinh tu Doxygen (chay lai bang: doxygen Doxyfile)
@@ -20,7 +20,7 @@ __pycache__/
 *.log
 tools/kaggle/oalpha_output/
 # Chay file .py cua notebook tu thu muc goc thi ket qua roi vao day
-/oalpha_output/
+/oalpha_output/cache/
 
 # File nhap / ca nhan o thu muc goc, khong thuoc ma nguon
 # (xoa dong tuong ung neu muon dua file do len Git)

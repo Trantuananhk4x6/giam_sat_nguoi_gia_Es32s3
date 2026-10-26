@@ -333,6 +333,7 @@ void persistLocked() {
         o["tg"]      = it.tgLeft;
         o["zl"]      = it.zlLeft;
         o["ok"]      = it.delivered;
+        o["tries"]   = it.tries;
     }
     File f = LittleFS.open(QUEUE_FILE, "w");
     if (!f) return;
@@ -506,22 +507,15 @@ SendResult postToEmail(const Item& item) {
     client.setTimeout(10);
 
     // Tiêu đề lấy dòng đầu của nội dung (bỏ thẻ HTML), gọn và rõ trong hộp thư.
-    String subject = stripHtml(item.text);
-    const int nl = subject.indexOf('\n');
-    if (nl > 0) subject = subject.substring(0, nl);
-    subject.trim();
-    if (subject.length() == 0) subject = "Canh bao he thong giam sat te nga";
-    if (subject.length() > 90) subject = subject.substring(0, 90);
-
-    // Resend nhận HTML trực tiếp. Chuyển xuống dòng \n thành <br> để email dễ đọc.
-    String html = item.text;
-    html.replace("\n", "<br>");
+    String subject;
+    String html = buildEmailHtml(item.text, subject);
 
     JsonDocument body;
     body["from"]    = EMAIL_FROM;
     body["to"]      = EMAIL_TO;
     body["subject"] = subject;
     body["html"]    = html;
+    body["text"]    = stripHtml(item.text);
     String payload;
     serializeJson(body, payload);
 

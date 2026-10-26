@@ -9,6 +9,8 @@
 #include "assistant.h"
 #include "fall_model.h"
 #include "nn_model.h"
+#include "model_weights.h"
+#include "nn_weights.h"
 #include "rf_remote.h"
 #include "wifi_mgr.h"
 #include "wifi_portal_page.h"   // WIFI_PORTAL_HTML: trang cấu hình Wi-Fi nhúng sẵn trong firmware
@@ -68,7 +70,7 @@ String statusJson() {
     jr["errors"]   = r.readErrors;
     // Bọc String() để sao chép nội dung ngay: chuỗi này do task radar ghi,
     // nếu giữ con trỏ thì có thể bị sửa giữa lúc đang đóng gói JSON.
-    jr["health"]   = String(Radar::healthText());
+    jr["health"]   = r.health[0] ? String(r.health) : String(Radar::healthText());
     jr["fastMode"] = r.fastMode;
     jr["frames"]   = r.framesGood;
     jr["badFrames"] = r.framesBad;
@@ -116,6 +118,14 @@ String statusJson() {
     jm["spec"]  = FallModel::FEATURE_SPEC_VERSION;
     jm["window"] = FallModel::WINDOW_SIZE;
     jm["periodMs"] = FEATURE_PERIOD_MS;
+    jm["features"] = FallModel::FEATURE_COUNT;
+#if FALL_MODEL_TRAINED
+    jm["threshold"]      = FALL_MODEL_THRESHOLD;
+#ifndef FALL_MODEL_CONFIRM_WINDOWS
+#define FALL_MODEL_CONFIRM_WINDOWS 2
+#endif
+    jm["confirmWindows"] = FALL_MODEL_CONFIRM_WINDOWS;
+#endif
 
     // Ket qua hai mang no-ron nho (xem src/core/nn_model.h). Manh hon hoi quy
     // logistic o tren nhieu nhung van chay tren chinh ESP32.
@@ -128,6 +138,22 @@ String statusJson() {
     jn["postureProb"] = r.nnPostureProb;
     jn["floorProb"]   = r.nnFloorProb;
     jn["info"]        = String(NnModel::info());
+    jn["postureCount"] = NnModel::POSTURE_COUNT;
+#if NN_MODEL_TRAINED
+    jn["spec"]           = NN_MODEL_SPEC_VERSION;
+    jn["threshold"]      = NN_FALL_THRESHOLD;
+    jn["confirmWindows"] = NN_CONFIRM_WINDOWS;
+#endif
+    JsonArray jpp = jn["postureProbs"].to<JsonArray>();
+    for (uint8_t i = 0; i < NnModel::POSTURE_COUNT; ++i) {
+        jpp.add(r.nnPostureProbs[i]);
+    }
+    JsonObject jpm = jn["postures"].to<JsonObject>();
+    jpm["noPerson"] = r.nnPostureProbs[NnModel::PS_NO_PERSON];
+    jpm["upright"]  = r.nnPostureProbs[NnModel::PS_UPRIGHT];
+    jpm["sitting"]  = r.nnPostureProbs[NnModel::PS_SITTING];
+    jpm["onBed"]    = r.nnPostureProbs[NnModel::PS_ON_BED];
+    jpm["onFloor"]  = r.nnPostureProbs[NnModel::PS_ON_FLOOR];
 
     // Cau hinh dang nap trong firmware. Dashboard doc de (1) biet do tre xac nhan
     // nga ma gan nhan dung cho du lieu huan luyen, (2) canh bao neu nguoi do khai

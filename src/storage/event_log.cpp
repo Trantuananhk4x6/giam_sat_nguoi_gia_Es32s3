@@ -31,6 +31,22 @@ void entryToJson(const LogEntry& e, JsonObject o) {
     o["note"]   = e.note;
 }
 
+EventSource parseSource(const char* s) {
+    if (!s || !s[0]) return SRC_SYSTEM;
+    for (uint8_t i = 0; i <= SRC_SYSTEM; ++i) {
+        if (strcmp(s, sourceCode((EventSource)i)) == 0) return (EventSource)i;
+    }
+    return SRC_SYSTEM;
+}
+
+SysState parseState(const char* s) {
+    if (!s || !s[0]) return ST_BOOT;
+    for (uint8_t i = 0; i <= ST_EMERGENCY; ++i) {
+        if (strcmp(s, stateName((SysState)i)) == 0) return (SysState)i;
+    }
+    return ST_BOOT;
+}
+
 /// Đọc ngược file để nạp các dòng cuối vào RAM khi mới bật nguồn.
 void loadTail() {
     if (!LittleFS.exists(LOG_FILE)) return;
@@ -52,7 +68,8 @@ void loadTail() {
         e.id       = doc["id"] | 0;
         e.ts       = (time_t)(doc["ts"] | 0);
         e.uptimeMs = (uint32_t)(doc["uptime"] | 0) * 1000UL;
-        e.state    = ST_BOOT;
+        e.source   = parseSource(doc["src"] | "");
+        e.state    = parseState(doc["state"] | "");
         const char* type = doc["type"] | "";
         for (uint8_t i = 0; i <= EV_TEST; ++i) {
             if (strcmp(type, eventCode((EventType)i)) == 0) { e.type = (EventType)i; break; }

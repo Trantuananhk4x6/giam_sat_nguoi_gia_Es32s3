@@ -3,6 +3,8 @@
 #include "event_log.h"
 #include "fall_model.h"
 #include "nn_model.h"
+#include "nn_weights.h"
+#include <math.h>
 #include "radar_frame.h"
 
 #include <DFRobot_HumanDetection.h>
@@ -41,8 +43,12 @@ struct Lock {
 void setHealth(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    vsnprintf(g_health, sizeof(g_health), fmt, args);
+    char buf[sizeof(g_health)];
+    vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
+    Lock lk;
+    memcpy(g_health, buf, sizeof(g_health));
+    memcpy(g_snap.health, buf, sizeof(g_snap.health));
 }
 
 // ===========================================================================
@@ -137,6 +143,47 @@ void updateNnLocked() {
     g_snap.nnPosture     = r.posture;
     g_snap.nnPostureProb = r.postureProb;
     g_snap.nnFloorProb   = r.floorProb;
+#if NN_MODEL_TRAINED
+    if (r.ready) {
+        float f[FallModel::FEATURE_COUNT];
+        if (FallModel::extractFeatures(g_ring, FEATURE_RING_SIZE, g_ringHead, g_ringTotal, f)) {
+            float buf[2][NN_MAX_UNITS];
+            int cur = 0;
+            for (int i = 0; i < NN_POSTURE_DIMS[0]; ++i) {
+                const float s = NN_POSTURE_SCALE[i];
+                buf[cur][i] = (f[i] - NN_POSTURE_MEAN[i]) / (s != 0.0f ? s : 1.0f);
+            }
+            const float* p = NN_POSTURE_PARAMS;
+            for (int l = 0; l < NN_POSTURE_LAYERS; ++l) {
+                const int nIn  = NN_POSTURE_DIMS[l];
+                const int nOut = NN_POSTURE_DIMS[l + 1];
+                const float* w = p;
+                const float* b = p + nOut * nIn;
+                p = b + nOut;
+                const float* src = buf[cur];
+                float*       dst = buf[1 - cur];
+                for (int o = 0; o < nOut; ++o) {
+                    float acc = b[o];
+                    const float* wo = w + (size_t)o * nIn;
+                    for (int i = 0; i < nIn; ++i) acc += wo[i] * src[i];
+                    dst[o] = (l < NN_POSTURE_LAYERS - 1 && acc < 0.0f) ? 0.0f : acc;
+                }
+                cur = 1 - cur;
+            }
+            float mx = buf[cur][0];
+            for (uint8_t i = 1; i < NnModel::POSTURE_COUNT; ++i)
+                if (buf[cur][i] > mx) mx = buf[cur][i];
+            float sum = 0.0f;
+            for (uint8_t i = 0; i < NnModel::POSTURE_COUNT; ++i) {
+                g_snap.nnPostureProbs[i] = expf(buf[cur][i] - mx);
+                sum += g_snap.nnPostureProbs[i];
+            }
+            for (uint8_t i = 0; i < NnModel::POSTURE_COUNT; ++i) {
+                g_snap.nnPostureProbs[i] /= (sum != 0.0f ? sum : 1.0f);
+            }
+        }
+    }
+#endif
 }
 
 // ===========================================================================
@@ -545,15 +592,18 @@ void libraryLoop() {
 
         if (++loops % 10 == 0) {
             const uint8_t mode = g_hu.getWorkMode();
-            Lock lk;
-            if (mode == 0) {
-                g_snap.readErrors++;
-                g_snap.online = false;
-                setHealth("mat lien lac (%lu loi)", (unsigned long)g_snap.readErrors);
-            } else {
-                g_snap.online = true;
-                setHealth("doc bang thu vien (cham)");
+            uint32_t errs = 0;
+            {
+                Lock lk;
+                if (mode == 0) {
+                    errs = ++g_snap.readErrors;
+                    g_snap.online = false;
+                } else {
+                    g_snap.online = true;
+                }
             }
+            if (mode == 0) setHealth("mat lien lac (%lu loi)", (unsigned long)errs);
+            else           setHealth("doc bang thu vien (cham)");
         }
 
         if (millis() >= nextFeature) {
@@ -612,6 +662,9 @@ void simTask(void*) {
             if (millis() >= nextFeature) {
                 nextFeature = millis() + FEATURE_PERIOD_MS;
                 pushFeatureLocked();
+                FallModel::update(g_ring, FEATURE_RING_SIZE, g_ringHead, g_ringTotal,
+                                  g_snap.modelReady, g_snap.modelFall, g_snap.modelProb);
+                updateNnLocked();
             }
         }
         vTaskDelay(pdMS_TO_TICKS(RADAR_POLL_INTERVAL_MS));
@@ -624,6 +677,11 @@ bool begin() {
     if (!g_mutex) g_mutex = xSemaphoreCreateMutex();
     FallModel::begin();
     NnModel::begin();
+    {
+        Lock lk;
+        g_snap.modelReady = FallModel::ready();
+        g_snap.nnReady    = NnModel::ready();
+    }
     const bool ok = xTaskCreatePinnedToCore(
                         SIMULATE_RADAR ? simTask : radarTask,
                         "radar", 6144, nullptr, 2, &g_task, 0) == pdPASS;
@@ -655,7 +713,12 @@ void injectPresence(bool present) {
     g_snap.lastUpdate = millis();
 }
 
-const char* healthText() { return g_health; }
+const char* healthText() {
+    static char s_copy[sizeof(g_health)];
+    Lock lk;
+    memcpy(s_copy, g_health, sizeof(s_copy));
+    return s_copy;
+}
 
 size_t copyFeatures(FeatureSample* out, size_t cap, uint32_t sinceMs) {
     if (!out || cap == 0) return 0;

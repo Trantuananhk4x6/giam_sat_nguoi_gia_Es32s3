@@ -118,6 +118,8 @@ struct RadarSnapshot {
     uint8_t  nnPosture     = 0;      ///< Tư thế nhận ra (NnModel::Posture)
     float    nnPostureProb = 0.0f;   ///< Xác suất của tư thế đang báo
     float    nnFloorProb   = 0.0f;   ///< Riêng xác suất "đang nằm trên sàn"
+    float    nnPostureProbs[5] = {0.0f}; ///< Xác suất softmax của cả 5 lớp tư thế (0..4)
+    char     health[56]    = "chua khoi tao"; ///< Bản sao chuỗi tình trạng radar (an toàn đa luồng)
 };
 
 /// Phân loại sự kiện để ghi nhật ký và hiển thị trên web
@@ -211,6 +213,8 @@ inline const char* sourceCode(EventSource s) {
     }
     return "?";
 }
+
+inline const char* sourceName(EventSource s) { return sourceCode(s); }
 
 /// Một dòng nhật ký
 struct LogEntry {
